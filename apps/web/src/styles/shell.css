@@ -1,0 +1,474 @@
+/* ============================================================
+   SKIFF — SHARED SHELL STYLES
+   Topbar + Sidebar + AppShell grid. Extracted from Design's
+   firstrun.css and hostlist.css. These are the bones every
+   authenticated route inherits.
+
+   Class naming preserves Design's convention (.topbar, .sidebar,
+   .nav-item, .tree-item) so screen-level CSS from Design drops
+   in unchanged on later days.
+   ============================================================ */
+
+/* ─── App grid ─────────────────────────────────────────────── */
+
+.app {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 44px 1fr;
+  grid-template-columns: 240px 1fr;
+  grid-template-areas:
+    "topbar topbar"
+    "sidebar main";
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-size: var(--t-base);
+  overflow: hidden;
+}
+
+/* The /unlock route uses a different layout — no shell. */
+.app--bare {
+  display: block;
+  height: 100%;
+}
+
+/* ─── Topbar ───────────────────────────────────────────────── */
+
+.topbar {
+  grid-area: topbar;
+  display: grid;
+  grid-template-columns: 240px 1fr 240px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  padding: 0 12px 0 14px;
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.topbar__brand .mark {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  display: grid;
+  place-items: center;
+  color: var(--accent-400);
+}
+
+.topbar__brand .name {
+  font-size: var(--t-md);
+}
+
+.topbar__brand .v {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.06em;
+  margin-left: 2px;
+}
+
+.topbar__search {
+  justify-self: center;
+  width: 100%;
+  max-width: 520px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--fg-2);
+  cursor: text;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.topbar__search:hover,
+.topbar__search:focus-within {
+  border-color: var(--border-strong);
+}
+
+.topbar__search input {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 12.5px;
+  color: var(--fg-0);
+}
+
+.topbar__search input::placeholder {
+  color: var(--fg-2);
+}
+
+.topbar__search .kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-xs);
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  color: var(--fg-1);
+}
+
+.topbar__actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.topbar__btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--fg-2);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease),
+              color var(--dur-fast) var(--ease);
+}
+
+.topbar__btn:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-2) 0 6px;
+  height: 28px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  margin-left: 6px;
+}
+
+.topbar__user .avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  background: linear-gradient(135deg, var(--accent-500), var(--accent-700));
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.topbar__user .who {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-1);
+}
+
+/* ─── Sidebar ──────────────────────────────────────────────── */
+
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  padding: var(--s-3) var(--s-2);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar__group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px var(--s-2) 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-2);
+}
+
+.sidebar__group .add {
+  background: transparent;
+  border: 0;
+  color: var(--fg-3);
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+}
+
+.sidebar__group .add:hover {
+  color: var(--fg-0);
+  background: var(--bg-2);
+}
+
+/* ─── Nav items (top-level entries) ────────────────────────── */
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--fg-1);
+  font-size: var(--t-base);
+  cursor: pointer;
+  position: relative;
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease),
+              color var(--dur-fast) var(--ease);
+}
+
+.nav-item .icon {
+  color: var(--fg-2);
+  display: inline-flex;
+}
+
+.nav-item .count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-3);
+}
+
+.nav-item .kbd-small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  margin-left: auto;
+}
+
+.nav-item:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+.nav-item[aria-current="true"],
+.nav-item.is-active {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.nav-item[aria-current="true"]::before,
+.nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--accent-500);
+  border-radius: 2px;
+}
+
+.nav-item[aria-current="true"] .icon,
+.nav-item.is-active .icon {
+  color: var(--accent-400);
+}
+
+/* ─── Tree items (folder hierarchy) ────────────────────────── */
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 26px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--fg-1);
+  font-size: var(--t-base);
+  cursor: pointer;
+  position: relative;
+}
+
+.tree-item:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+.tree-item[aria-current="true"] {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.tree-item[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  background: var(--accent-500);
+  border-radius: 2px;
+}
+
+.tree-item[aria-current="true"] .icon {
+  color: var(--accent-400);
+}
+
+.tree-item .twist {
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--fg-2);
+  transition: transform var(--dur-fast) var(--ease);
+  cursor: pointer;
+  border-radius: var(--r-xs);
+}
+
+.tree-item .twist.open {
+  transform: rotate(90deg);
+  color: var(--fg-1);
+}
+
+.tree-item .twist.empty {
+  visibility: hidden;
+}
+
+.tree-item .icon {
+  color: var(--fg-2);
+  display: inline-flex;
+}
+
+.tree-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-item .count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-3);
+}
+
+/* ─── Sidebar folder empty-state pill ──────────────────────── */
+
+.sidebar__folders-empty {
+  margin: 4px 4px 0;
+  padding: var(--s-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  font-size: 11.5px;
+  color: var(--fg-2);
+  line-height: 1.45;
+  text-align: center;
+}
+
+.sidebar__folders-empty .strong {
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.sidebar__folders-empty a {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--accent-400);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sidebar__folders-empty a:hover {
+  color: var(--accent-200);
+}
+
+/* ─── Sidebar footer: vault status ─────────────────────────── */
+
+.sidebar__foot {
+  margin-top: auto;
+  padding: var(--s-2) 4px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.vault-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--fg-1);
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.vault-status:hover {
+  background: var(--bg-2);
+}
+
+.vault-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  background: var(--status-connected);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--status-connected) 18%, transparent);
+  flex-shrink: 0;
+}
+
+.vault-status .dot.is-locked {
+  background: var(--fg-3);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--fg-3) 18%, transparent);
+}
+
+.vault-status .meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vault-status .meta .l1 {
+  font-size: 12px;
+  color: var(--fg-0);
+}
+
+.vault-status .meta .l2 {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-2);
+}
+
+/* ─── Main area ────────────────────────────────────────────── */
+
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+  overflow: hidden;
+  min-width: 0; /* allow children to shrink properly */
+}
+
+.main__body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}

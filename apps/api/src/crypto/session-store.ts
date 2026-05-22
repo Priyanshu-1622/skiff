@@ -1,0 +1,113 @@
+/**
+ * In-memory session key store.
+ *
+ * Holds the derived vault key per session. This NEVER touches disk.
+ * When the idle timer fires, the key is zeroed and the session is
+ * considered locked.
+ */
+
+import { randomBytes } from "node:crypto";
+
+export interface SessionEntry {
+  vaultKey: Buffer;
+  createdAt: number;
+  lastSeenAt: number;
+}
+
+export class SessionStore {
+  private sessions = new Map<string, SessionEntry>();
+  private idleTimeoutMs: number;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor(idleTimeoutMinutes: number = 15) {
+    this.idleTimeoutMs = idleTimeoutMinutes * 60 * 1000;
+    this.startCleanup();
+  }
+
+  /**
+   * Create a new session and store the vault key.
+   */
+  create(vaultKey: Buffer): string {
+    const id = randomBytes(32).toString("hex");
+    const now = Date.now();
+    this.sessions.set(id, {
+      vaultKey: Buffer.from(vaultKey),
+      createdAt: now,
+      lastSeenAt: now,
+    });
+    return id;
+  }
+
+  /**
+   * Get the vault key for a session, updating its lastSeenAt.
+   * Returns null if expired or not found.
+   */
+  get(sessionId: string): Buffer | null {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) return null;
+
+    if (Date.now() - entry.lastSeenAt > this.idleTimeoutMs) {
+      this.destroy(sessionId);
+      return null;
+    }
+
+    entry.lastSeenAt = Date.now();
+    return entry.vaultKey;
+  }
+
+  /**
+   * Destroy a session, zeroing the key in memory.
+   */
+  destroy(sessionId: string): void {
+    const entry = this.sessions.get(sessionId);
+    if (entry) {
+      entry.vaultKey.fill(0);
+      this.sessions.delete(sessionId);
+    }
+  }
+
+  /**
+   * Lock all sessions (e.g. manual lock button).
+   */
+  destroyAll(): void {
+    for (const [id] of this.sessions) {
+      this.destroy(id);
+    }
+  }
+
+  /**
+   * Update the idle timeout (e.g. from settings change).
+   */
+  setIdleTimeout(minutes: number): void {
+    this.idleTimeoutMs = minutes * 60 * 1000;
+  }
+
+  get size(): number {
+    return this.sessions.size;
+  }
+
+  private startCleanup(): void {
+    // Sweep every 60 seconds for expired sessions
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [id, entry] of this.sessions) {
+        if (now - entry.lastSeenAt > this.idleTimeoutMs) {
+          this.destroy(id);
+        }
+      }
+    }, 60_000);
+
+    // Allow the process to exit even if the interval is still running
+    if (this.cleanupInterval.unref) {
+      this.cleanupInterval.unref();
+    }
+  }
+
+  close(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    this.destroyAll();
+  }
+}

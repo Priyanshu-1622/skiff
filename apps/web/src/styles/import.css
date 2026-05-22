@@ -1,0 +1,626 @@
+/* ============================================================
+   Skiff — Import SSH config
+   Two-step modal: file picker (compact) → preview table (wide)
+   ============================================================ */
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--fg-0);
+  background: var(--bg-0);
+}
+
+/* ── dimmed app backdrop behind the modal ──────────────── */
+
+.stage {
+  position: relative;
+  width: 100%; height: 100%;
+  background: var(--bg-0);
+  display: grid; place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  padding: 24px;
+}
+.stage::before {
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(to right, var(--bg-1) 0, var(--bg-1) 200px, transparent 200px),
+    linear-gradient(to bottom, var(--bg-1) 0, var(--bg-1) 44px, transparent 44px),
+    repeating-linear-gradient(180deg,
+      transparent 0 44px,
+      color-mix(in oklab, var(--fg-2) 5%, transparent) 44px 45px,
+      transparent 45px 88px),
+    var(--bg-0);
+  opacity: 0.5;
+}
+.stage::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: color-mix(in oklab, var(--bg-0) 78%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* ── modal shell ────────────────────────────────────────── */
+
+.modal {
+  position: relative;
+  z-index: 2;
+  width: 520px;
+  max-height: calc(100% - 48px);
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: width 200ms cubic-bezier(.2,.6,.2,1);
+}
+.modal.wide { width: 1040px; }
+
+.modal__head {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 18px 20px 14px;
+}
+
+.steps {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-2);
+}
+.steps .step {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+.steps .step.on {
+  border-color: color-mix(in oklab, var(--accent-500) 60%, var(--border-strong));
+  color: var(--accent-200);
+  background: color-mix(in oklab, var(--accent-500) 10%, var(--bg-2));
+}
+.steps .step .num {
+  width: 14px; height: 14px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  color: var(--fg-2);
+  font-size: 10px;
+}
+.steps .step.on .num {
+  background: var(--accent-500);
+  color: var(--accent-fg);
+  border-color: var(--accent-500);
+}
+.steps .step.done .num {
+  background: color-mix(in oklab, var(--status-connected) 16%, var(--bg-2));
+  border-color: color-mix(in oklab, var(--status-connected) 50%, var(--border-strong));
+  color: var(--status-connected);
+}
+.steps .step.done {
+  color: var(--fg-1);
+}
+.steps .arrow { color: var(--fg-3); }
+
+.modal__title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 6px 0 2px;
+}
+.modal__sub {
+  font-size: 13px;
+  color: var(--fg-1);
+  margin: 0;
+}
+.modal__head-actions { display: flex; align-items: center; gap: 6px; }
+.modal__close {
+  background: transparent;
+  border: 0;
+  color: var(--fg-2);
+  cursor: pointer;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: grid; place-items: center;
+}
+.modal__close:hover { background: var(--bg-2); color: var(--fg-0); }
+
+.modal__body {
+  padding: 8px 20px 18px;
+  overflow: auto;
+}
+
+.modal__foot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+}
+.modal__foot .left {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.modal__foot .left .icon { display: inline-flex; }
+
+/* ── buttons ────────────────────────────────────────────── */
+
+.btn {
+  appearance: none;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font: 500 12.5px/1 var(--font-sans);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn--primary {
+  background: var(--accent-500);
+  color: var(--accent-fg);
+  border-color: color-mix(in oklab, var(--accent-700) 50%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), var(--shadow-sm);
+}
+.btn--primary:hover { background: var(--accent-600); }
+.btn--primary[disabled] {
+  background: var(--bg-3); color: var(--fg-3);
+  border-color: var(--border-strong); box-shadow: none; cursor: not-allowed;
+}
+.btn--secondary {
+  background: var(--bg-1);
+  color: var(--fg-0);
+  border-color: var(--border-strong);
+}
+.btn--secondary:hover { background: var(--bg-3); }
+.btn--ghost {
+  background: transparent;
+  color: var(--fg-1);
+}
+.btn--ghost:hover { background: var(--bg-3); color: var(--fg-0); }
+.btn .kbd-inline {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  height: 18px; padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(0,0,0,0.3);
+  color: rgba(255,255,255,0.9);
+  display: inline-flex; align-items: center;
+}
+.btn--ghost .kbd-inline,
+.btn--secondary .kbd-inline {
+  background: var(--bg-2);
+  border-color: var(--border);
+  color: var(--fg-1);
+}
+
+/* ──────────────────────────────────────────────────────────
+   STEP 1 — drop zone / picked file
+   ────────────────────────────────────────────────────────── */
+
+.drop {
+  display: grid; place-items: center;
+  padding: 36px 24px 28px;
+  background:
+    repeating-linear-gradient(135deg,
+      transparent 0 8px,
+      color-mix(in oklab, var(--fg-2) 4%, transparent) 8px 9px);
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+}
+.drop:hover {
+  border-color: var(--accent-500);
+  background: color-mix(in oklab, var(--accent-500) 5%, var(--bg-2));
+}
+.drop__icon {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  display: grid; place-items: center;
+  color: var(--accent-400);
+  margin-bottom: 14px;
+}
+.drop__title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-0);
+}
+.drop__title .mono { font-family: var(--font-mono); color: var(--fg-1); }
+.drop__sub {
+  font-size: 12px;
+  color: var(--fg-2);
+  margin-top: 4px;
+  font-family: var(--font-mono);
+}
+.drop__browse {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 14px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  color: var(--fg-0);
+  font: 500 12.5px/1 var(--font-sans);
+  cursor: pointer;
+}
+.drop__browse:hover { background: var(--bg-3); }
+
+/* picked file chip */
+.picked {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+}
+.picked__icon {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  display: grid; place-items: center;
+  color: var(--accent-400);
+}
+.picked__name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg-0);
+  font-weight: 500;
+}
+.picked__meta {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-2);
+}
+.picked__meta .strong { color: var(--fg-1); }
+.picked__meta .sep { color: var(--fg-3); }
+.picked__meta .ok {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--status-connected);
+}
+.picked__meta .warn {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--status-connecting);
+}
+.picked__remove {
+  background: transparent;
+  border: 0;
+  color: var(--fg-2);
+  cursor: pointer;
+  width: 26px; height: 26px;
+  border-radius: 5px;
+  display: grid; place-items: center;
+}
+.picked__remove:hover { color: var(--fg-0); background: var(--bg-3); }
+
+/* parse preview block — surfaces what we found */
+.parse-preview {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.parse-preview .cell {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.parse-preview .k {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-2);
+}
+.parse-preview .v {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg-0);
+}
+
+.options {
+  margin-top: 14px;
+  display: grid; gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.options__row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12.5px;
+  color: var(--fg-1);
+}
+.options__row .checkbox { flex-shrink: 0; }
+.options__row .desc { color: var(--fg-2); font-size: 11.5px; margin-top: 2px; }
+
+/* ──────────────────────────────────────────────────────────
+   Checkbox (shared)
+   ────────────────────────────────────────────────────────── */
+
+.checkbox {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-2);
+  display: grid; place-items: center;
+  cursor: pointer;
+  color: white;
+  transition: background 100ms, border-color 100ms;
+  flex-shrink: 0;
+}
+.checkbox:hover { border-color: var(--fg-2); }
+.checkbox.checked {
+  background: var(--accent-500);
+  border-color: color-mix(in oklab, var(--accent-700) 50%, transparent);
+}
+.checkbox.indeterminate {
+  background: var(--accent-500);
+  border-color: color-mix(in oklab, var(--accent-700) 50%, transparent);
+}
+.checkbox.indeterminate::after {
+  content: "";
+  width: 8px; height: 2px;
+  background: white;
+  border-radius: 1px;
+}
+
+/* ──────────────────────────────────────────────────────────
+   STEP 2 — preview table
+   ────────────────────────────────────────────────────────── */
+
+.preview__toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 4px 12px;
+}
+.preview__toolbar .src {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-1);
+  padding: 4px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.preview__toolbar .src .icon { color: var(--fg-2); }
+.preview__toolbar .src .strong { color: var(--fg-0); }
+.preview__toolbar .src .meta { color: var(--fg-3); margin-left: 4px; }
+
+.preview__toolbar .filter {
+  display: flex; align-items: center; gap: 8px;
+  width: 220px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+.preview__toolbar .filter input {
+  flex: 1; min-width: 0;
+  background: transparent; border: 0; outline: none;
+  font: 400 12px/1 var(--font-sans);
+  color: var(--fg-0);
+}
+.preview__toolbar .filter input::placeholder { color: var(--fg-3); }
+.preview__toolbar .spacer { flex: 1; }
+
+.bulk-folder {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 0 4px 0 8px;
+  height: 28px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-1);
+}
+.bulk-folder .label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-2);
+}
+
+/* ── table ─────────────────────────────────────────────── */
+
+.preview-table {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.preview-table__head,
+.preview-table__row {
+  display: grid;
+  grid-template-columns:
+    22px        /* checkbox */
+    minmax(160px, 1.5fr)    /* label */
+    minmax(180px, 1.6fr)    /* hostname */
+    minmax(80px, 0.9fr)     /* user */
+    50px                    /* port */
+    minmax(180px, 1.4fr)    /* identity file */
+    minmax(150px, 1.2fr);   /* folder dropdown */
+  gap: 12px;
+  align-items: center;
+  padding: 8px 14px;
+}
+
+.preview-table__head {
+  height: 34px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+}
+.preview-table__head .col {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+.preview-table__row {
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 100ms;
+  min-height: 38px;
+}
+.preview-table__row:first-of-type { border-top: 0; }
+.preview-table__row:hover { background: var(--bg-2); }
+.preview-table__row.unchecked {
+  opacity: 0.55;
+}
+.preview-table__row.dup .label-cell .name {
+  text-decoration: line-through;
+  color: var(--fg-2);
+}
+.preview-table__row.dup .badge { display: inline-flex; }
+
+.label-cell {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0;
+}
+.label-cell .name {
+  font-weight: 500;
+  color: var(--fg-0);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.label-cell .alias {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-3);
+  padding: 1px 5px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge {
+  display: none;
+  align-items: center; gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--status-connecting-bg);
+  border: 1px solid color-mix(in oklab, var(--status-connecting) 40%, var(--border-strong));
+  color: var(--status-connecting);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.badge .icon { display: inline-flex; }
+.badge.new { background: var(--status-connected-bg); border-color: color-mix(in oklab, var(--status-connected) 40%, var(--border-strong)); color: var(--status-connected); }
+.badge.skip { background: var(--bg-2); border-color: var(--border-strong); color: var(--fg-2); }
+
+.cell-host {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cell-host .placeholder { color: var(--fg-3); }
+.cell-user {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-1);
+}
+.cell-port {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-2);
+}
+.cell-port .strong { color: var(--fg-0); }
+.cell-identity {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-1);
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0;
+}
+.cell-identity .icon { color: var(--fg-2); flex-shrink: 0; }
+.cell-identity .path {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cell-identity.none { color: var(--fg-3); font-style: italic; }
+
+/* folder dropdown inside row */
+.folder-select {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--fg-1);
+  position: relative;
+  cursor: pointer;
+  width: 100%;
+  min-width: 0;
+}
+.folder-select:hover { background: var(--bg-3); }
+.folder-select .icon { color: var(--fg-2); flex-shrink: 0; }
+.folder-select .name {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.folder-select::after {
+  content: "";
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--fg-2);
+  border-bottom: 1.5px solid var(--fg-2);
+  transform: translateY(-2px) rotate(45deg);
+  flex-shrink: 0;
+}
+
+/* the table is the scroll surface */
+.preview-table__body {
+  max-height: 440px;
+  overflow: auto;
+}
+
+/* footer summary text */
+.summary {
+  display: inline-flex; align-items: center; gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-1);
+}
+.summary .group {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.summary .group.skipped { color: var(--fg-3); }
+.summary .group .swatch {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--status-connected);
+}
+.summary .group.skipped .swatch { background: var(--fg-3); }
+.summary .group.dup .swatch { background: var(--status-connecting); }
+.summary strong { color: var(--fg-0); font-weight: 500; }

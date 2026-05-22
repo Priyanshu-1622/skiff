@@ -1,0 +1,42 @@
+{
+  "name": "skiff",
+  "version": "0.1.0",
+  "description": "Self-hosted SSH connection manager. Open-source alternative to Termius.",
+  "private": true,
+  "keywords": [
+    "ssh",
+    "terminal",
+    "connection-manager",
+    "self-hosted",
+    "xterm",
+    "websocket",
+    "encryption",
+    "vault"
+  ],
+  "author": "Skiff Contributors",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/skiff.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/skiff/issues"
+  },
+  "homepage": "https://github.com/yourusername/skiff#readme",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter @skiff/web dev\" \"pnpm --filter @skiff/api dev\"",
+    "dev:web": "pnpm --filter @skiff/web dev",
+    "dev:api": "pnpm --filter @skiff/api dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "clean": "pnpm -r exec rm -rf node_modules dist .turbo && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

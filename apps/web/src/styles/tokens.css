@@ -1,0 +1,150 @@
+/* ============================================================
+   SKIFF — DESIGN TOKENS
+   Maps 1:1 to Tailwind theme.extend. See <TailwindConfig /> at
+   the bottom of the style guide for the export.
+   ============================================================ */
+
+:root,
+[data-theme="dark"] {
+  /* Surfaces — layered, low-chroma neutrals */
+  --bg-0:        #0A0B0D;   /* page / app shell        */
+  --bg-1:        #0F1115;   /* panel                   */
+  --bg-2:        #16181D;   /* raised card / input     */
+  --bg-3:        #1C1F25;   /* hover / focus surface   */
+  --bg-4:        #23262D;   /* selected / pressed      */
+
+  /* Borders */
+  --border:         #23262D;
+  --border-strong:  #2F333B;
+  --border-focus:   #3B5BDB;
+
+  /* Foreground */
+  --fg-0: #E6E8EC;          /* primary text            */
+  --fg-1: #A8ADB7;          /* secondary text          */
+  --fg-2: #6E737C;          /* muted / metadata        */
+  --fg-3: #4A4E57;          /* disabled                */
+
+  /* Accent — one azure for primary actions */
+  --accent-50:  oklch(0.96 0.02 240);
+  --accent-200: oklch(0.85 0.07 240);
+  --accent-400: oklch(0.74 0.12 240);
+  --accent-500: oklch(0.66 0.15 240);   /* default        */
+  --accent-600: oklch(0.58 0.16 240);   /* hover          */
+  --accent-700: oklch(0.50 0.16 240);   /* active         */
+  --accent-fg:  #FFFFFF;
+
+  /* Semantic status — matched chroma 0.14, varied hue */
+  --status-connected:    oklch(0.74 0.14 150);
+  --status-connecting:   oklch(0.80 0.14 80);
+  --status-error:        oklch(0.68 0.18 28);
+  --status-idle:         #6E737C;
+  --status-connected-bg:    color-mix(in oklab, oklch(0.74 0.14 150) 14%, transparent);
+  --status-connecting-bg:   color-mix(in oklab, oklch(0.80 0.14 80) 14%, transparent);
+  --status-error-bg:        color-mix(in oklab, oklch(0.68 0.18 28) 14%, transparent);
+  --status-idle-bg:         color-mix(in oklab, #6E737C 14%, transparent);
+
+  /* Selection / highlight */
+  --selection-bg: color-mix(in oklab, var(--accent-500) 28%, transparent);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 0 0 rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 16px -4px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3);
+  --shadow-lg: 0 24px 48px -12px rgba(0,0,0,0.6), 0 8px 16px -4px rgba(0,0,0,0.4);
+  --shadow-pop: 0 32px 64px -16px rgba(0,0,0,0.7), 0 0 0 1px var(--border-strong);
+
+  /* Focus ring */
+  --ring: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent-500);
+}
+
+[data-theme="light"] {
+  --bg-0:        #FBFBFC;
+  --bg-1:        #FFFFFF;
+  --bg-2:        #F4F5F7;
+  --bg-3:        #ECEEF2;
+  --bg-4:        #E1E4EA;
+
+  --border:         #E4E6EB;
+  --border-strong:  #C9CDD4;
+  --border-focus:   oklch(0.58 0.16 240);
+
+  --fg-0: #15171B;
+  --fg-1: #4B5159;
+  --fg-2: #6E737C;
+  --fg-3: #A0A4AC;
+
+  --accent-50:  oklch(0.96 0.02 240);
+  --accent-200: oklch(0.85 0.07 240);
+  --accent-400: oklch(0.62 0.14 240);
+  --accent-500: oklch(0.54 0.16 240);
+  --accent-600: oklch(0.46 0.16 240);
+  --accent-700: oklch(0.40 0.16 240);
+  --accent-fg:  #FFFFFF;
+
+  --status-connected:    oklch(0.56 0.14 150);
+  --status-connecting:   oklch(0.62 0.14 70);
+  --status-error:        oklch(0.54 0.18 28);
+  --status-idle:         #6E737C;
+  --status-connected-bg:    color-mix(in oklab, oklch(0.56 0.14 150) 12%, transparent);
+  --status-connecting-bg:   color-mix(in oklab, oklch(0.62 0.14 70) 14%, transparent);
+  --status-error-bg:        color-mix(in oklab, oklch(0.54 0.18 28) 12%, transparent);
+  --status-idle-bg:         color-mix(in oklab, #6E737C 10%, transparent);
+
+  --selection-bg: color-mix(in oklab, var(--accent-500) 18%, transparent);
+
+  --shadow-sm: 0 1px 0 0 rgba(15,17,21,0.04), 0 1px 2px rgba(15,17,21,0.06);
+  --shadow-md: 0 4px 16px -4px rgba(15,17,21,0.10), 0 2px 4px rgba(15,17,21,0.04);
+  --shadow-lg: 0 24px 48px -12px rgba(15,17,21,0.12), 0 8px 16px -4px rgba(15,17,21,0.06);
+  --shadow-pop: 0 32px 64px -16px rgba(15,17,21,0.18), 0 0 0 1px var(--border-strong);
+
+  --ring: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent-500);
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* type scale */
+  --t-xs:   11px;   /* labels, code chips      */
+  --t-sm:   12px;   /* meta, captions          */
+  --t-base: 13px;   /* UI default              */
+  --t-md:   14px;   /* body                    */
+  --t-lg:   16px;   /* card titles             */
+  --t-xl:   20px;   /* dialog titles           */
+  --t-2xl:  28px;   /* page H1                 */
+  --t-3xl:  40px;   /* hero                    */
+
+  /* line heights */
+  --lh-tight:  1.15;
+  --lh-snug:   1.35;
+  --lh-normal: 1.5;
+
+  /* spacing scale (4-based) */
+  --s-1:   4px;
+  --s-2:   8px;
+  --s-3:   12px;
+  --s-4:   16px;
+  --s-5:   20px;
+  --s-6:   24px;
+  --s-8:   32px;
+  --s-10:  40px;
+  --s-12:  48px;
+  --s-16:  64px;
+  --s-20:  80px;
+
+  /* radii */
+  --r-xs:  3px;
+  --r-sm:  5px;
+  --r-md:  7px;
+  --r-lg:  10px;
+  --r-xl:  14px;
+  --r-2xl: 20px;
+  --r-full: 9999px;
+
+  --dur-fast:   120ms;
+  --dur-base:   180ms;
+  --dur-slow:   260ms;
+  --ease:       cubic-bezier(0.2, 0.6, 0.2, 1);
+}

@@ -1,0 +1,35 @@
+# =====================================================
+# Skiff — one-command self-hosted deploy
+#
+# Usage:
+#   docker compose up -d
+#
+# Then visit http://localhost:8080. Your encrypted vault lives in the
+# ./data volume — back it up regularly.
+#
+# Before first run, copy .env.example to .env and set SKIFF_COOKIE_SECRET.
+# =====================================================
+
+services:
+  skiff:
+    build: .
+    image: skiff:latest
+    container_name: skiff
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      SKIFF_PORT: 8080
+      SKIFF_HOST: 0.0.0.0
+      SKIFF_DATA_DIR: /app/data
+      SKIFF_COOKIE_SECRET: ${SKIFF_COOKIE_SECRET:?required - generate with: openssl rand -hex 32}
+      SKIFF_TRUSTED_ORIGINS: ${SKIFF_TRUSTED_ORIGINS:-}
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

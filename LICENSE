@@ -1,0 +1,13 @@
+Skiff is licensed under the GNU Affero General Public License v3.0 only.
+
+The full license text is available at:
+https://www.gnu.org/licenses/agpl-3.0.txt
+
+Copy that text into this LICENSE file before publishing the repository.
+
+In short:
+  - You may use, modify, and distribute Skiff freely.
+  - If you run a modified version as a network service (e.g. SaaS),
+    you must make your source code available to your users under the
+    same license.
+  - This prevents commercial SaaS forks from being closed-source.

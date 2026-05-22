@@ -1,0 +1,693 @@
+/* ============================================================
+   Skiff — Terminal session view
+   Tabs + connection header + xterm pane + status line
+   Reuses .app/.topbar/.sidebar from firstrun.css
+   ============================================================ */
+
+/* ── ANSI palette mapped to the Skiff system ────────────────
+   Defined as variables so the terminal area can be themed
+   without affecting the surrounding chrome.
+*/
+:root {
+  --ansi-bg:        #0A0B0D;
+  --ansi-fg:        #E6E8EC;
+  --ansi-dim:       #A8ADB7;
+  --ansi-muted:     #6E737C;
+
+  --ansi-red:       oklch(0.72 0.18 28);
+  --ansi-green:     oklch(0.78 0.16 145);
+  --ansi-yellow:    oklch(0.83 0.14 80);
+  --ansi-blue:      oklch(0.74 0.14 240);
+  --ansi-magenta:   oklch(0.74 0.16 320);
+  --ansi-cyan:      oklch(0.78 0.10 200);
+  --ansi-white:     #E6E8EC;
+
+  --ansi-bright-red:     oklch(0.80 0.18 28);
+  --ansi-bright-green:   oklch(0.84 0.16 145);
+  --ansi-bright-yellow:  oklch(0.88 0.14 80);
+  --ansi-bright-blue:    oklch(0.80 0.14 240);
+  --ansi-bright-magenta: oklch(0.80 0.16 320);
+  --ansi-bright-cyan:    oklch(0.84 0.10 200);
+}
+
+/* ─────────────────────── Sessions group in sidebar ─────────── */
+
+.sidebar__sessions {
+  margin: 4px 4px 0;
+  padding: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.sidebar__sessions .row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px;
+  padding: 4px 0;
+}
+.sidebar__sessions .row + .row { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 8px; }
+.sidebar__sessions .name { color: var(--fg-0); font-weight: 500; }
+.sidebar__sessions .meta { color: var(--fg-2); font-family: var(--font-mono); font-size: 10.5px; margin-left: auto; }
+
+/* ─────────────────────── Terminal pane ───────────────────── */
+
+.term {
+  display: flex; flex-direction: column;
+  width: 100%; height: 100%;
+  background: var(--bg-0);
+  font-family: var(--font-mono);
+  position: relative;
+  isolation: isolate;
+}
+
+/* Tab strip */
+.term__tabs {
+  display: flex;
+  align-items: end;
+  gap: 0;
+  padding: 6px 8px 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  min-height: 40px;
+}
+
+.tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
+  font: 500 12.5px/1 var(--font-sans);
+  color: var(--fg-1);
+  cursor: pointer;
+  margin-bottom: -1px;        /* connect tab into the panel */
+  position: relative;
+  min-width: 0;
+  max-width: 220px;
+}
+.tab:hover:not(.on) {
+  color: var(--fg-0);
+  background: var(--bg-2);
+}
+.tab.on {
+  background: var(--bg-0);
+  border-color: var(--border);
+  color: var(--fg-0);
+}
+.tab.on::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 2px;
+  background: var(--accent-500);
+  border-radius: 2px;
+}
+
+.tab .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.tab .dot.connected  { color: var(--status-connected); background: var(--status-connected); }
+.tab .dot.connecting { color: var(--status-connecting); background: var(--status-connecting); position: relative; }
+.tab .dot.connecting::after {
+  content: ""; position: absolute; inset: -2px;
+  border-radius: 50%;
+  background: var(--status-connecting);
+  opacity: 0.35;
+  animation: dot-pulse 1.2s cubic-bezier(.2,.6,.2,1) infinite;
+}
+.tab .dot.error      { color: var(--status-error); background: var(--status-error); }
+.tab .dot.idle       { color: var(--status-idle); background: transparent; box-shadow: inset 0 0 0 1.5px var(--status-idle); }
+
+@keyframes dot-pulse {
+  0%   { transform: scale(0.7); opacity: 0.5; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.tab .label {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.tab .close {
+  width: 16px; height: 16px;
+  border-radius: 3px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--fg-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 100ms, background 100ms, color 100ms;
+}
+.tab:hover .close,
+.tab.on .close { opacity: 1; }
+.tab .close:hover { background: var(--bg-3); color: var(--fg-0); }
+
+.tab__add {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--fg-2);
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: -1px;
+  margin-left: 4px;
+}
+.tab__add:hover { background: var(--bg-2); color: var(--fg-0); }
+
+.term__tabs .spacer { flex: 1; }
+.term__tabs .header-actions {
+  display: flex; align-items: center; gap: 4px;
+  padding-bottom: 6px;
+}
+.term__tabs .header-actions button {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--fg-2);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.term__tabs .header-actions button:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+/* ── Connection header ──────────────────────────────────── */
+
+.conn {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.conn__label {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 500;
+  color: var(--fg-0);
+  letter-spacing: -0.005em;
+}
+.conn__label .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--status-connected);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--status-connected) 18%, transparent);
+}
+.conn__label.connecting .dot { background: var(--status-connecting); animation: connecting-pulse 1.2s ease-in-out infinite; }
+@keyframes connecting-pulse {
+  0%, 100% { box-shadow: 0 0 0 0   color-mix(in oklab, var(--status-connecting) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklab, var(--status-connecting) 0%, transparent); }
+}
+
+.conn__addr {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-1);
+}
+.conn__addr .user  { color: var(--fg-0); }
+.conn__addr .at,
+.conn__addr .colon { color: var(--fg-3); }
+.conn__addr .port  { color: var(--fg-3); }
+
+.conn__sep {
+  width: 1px; align-self: stretch;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.conn__metric {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-2);
+}
+.conn__metric .v { color: var(--fg-0); font-weight: 500; }
+.conn__metric .ms { color: var(--fg-3); }
+.conn__metric.lat .v { color: var(--status-connected); }       /* fast */
+.conn__metric.lat.warn .v { color: var(--status-connecting); } /* slow */
+.conn__metric.lat.bad  .v { color: var(--status-error); }
+
+.conn__spacer { flex: 1; }
+
+.conn__btn {
+  appearance: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  font: 500 11.5px/1 var(--font-sans);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.conn__btn:hover { background: var(--bg-3); color: var(--fg-0); }
+
+.conn__btn.disconnect {
+  color: var(--status-error);
+  border-color: color-mix(in oklab, var(--status-error) 30%, transparent);
+}
+.conn__btn.disconnect:hover {
+  background: color-mix(in oklab, var(--status-error) 10%, transparent);
+}
+
+.conn__btn .k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 4px; height: 14px;
+  border-radius: 2px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  color: var(--fg-2);
+  display: inline-flex; align-items: center;
+}
+
+/* ── Terminal screen ────────────────────────────────────── */
+
+.term__screen {
+  flex: 1;
+  overflow: auto;
+  background: var(--ansi-bg);
+  padding: 14px 16px 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ansi-fg);
+  position: relative;
+}
+/* faint scanline-ish texture — keep it subtle */
+.term__screen::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 2px,
+    rgba(255,255,255,0.012) 2px 3px
+  );
+  pointer-events: none;
+}
+
+.term__screen pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* selection inside terminal: a soft accent fill */
+.term__screen ::selection { background: color-mix(in oklab, var(--accent-500) 35%, transparent); }
+
+/* caret */
+.cursor-block {
+  display: inline-block;
+  width: 7px; height: 14px;
+  background: var(--accent-400);
+  vertical-align: -2px;
+  animation: term-blink 1s steps(1) infinite;
+}
+@keyframes term-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* ANSI color classes */
+.a-r { color: var(--ansi-red); }
+.a-g { color: var(--ansi-green); }
+.a-y { color: var(--ansi-yellow); }
+.a-b { color: var(--ansi-blue); }
+.a-m { color: var(--ansi-magenta); }
+.a-c { color: var(--ansi-cyan); }
+.a-w { color: var(--ansi-white); }
+.a-dim { color: var(--ansi-dim); }
+.a-mut { color: var(--ansi-muted); }
+.a-bold { font-weight: 600; color: var(--ansi-white); }
+
+.a-bg-r { background: color-mix(in oklab, var(--ansi-red) 18%, transparent); }
+.a-bg-g { background: color-mix(in oklab, var(--ansi-green) 18%, transparent); }
+
+.prompt-user  { color: var(--ansi-green); font-weight: 600; }
+.prompt-at    { color: var(--ansi-muted); }
+.prompt-host  { color: var(--ansi-blue);  font-weight: 600; }
+.prompt-path  { color: var(--ansi-yellow); }
+.prompt-glyph { color: var(--ansi-fg); }
+
+/* ── Status line at bottom ───────────────────────────── */
+
+.term__status {
+  height: 26px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 16px;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+.term__status .group {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.term__status .v { color: var(--fg-0); }
+.term__status .b { color: var(--accent-400); }
+.term__status .branch-dirty { color: var(--status-connecting); }
+.term__status .spacer { flex: 1; }
+.term__status .k {
+  font-size: 10.5px;
+  padding: 0 4px; height: 14px;
+  border-radius: 2px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--fg-1);
+  display: inline-flex; align-items: center;
+}
+.term__status .shortcut { display: inline-flex; align-items: center; gap: 4px; }
+
+/* paste indicator (replaces the cwd group when active) */
+.paste-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 8px; height: 18px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--accent-500) 22%, transparent);
+  color: var(--accent-200);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.paste-pill .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor;
+  animation: term-blink 1.4s steps(1) infinite;
+}
+
+/* ─────────────────────── Connecting overlay ─────────── */
+
+.connecting {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 1;
+  background: var(--ansi-bg);
+  padding: 24px;
+  overflow: hidden;
+}
+.connecting::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(800px 360px at 50% 40%,
+      color-mix(in oklab, var(--accent-500) 8%, transparent),
+      transparent 70%);
+  pointer-events: none;
+}
+
+.connecting-card {
+  position: relative;
+  z-index: 2;
+  width: 460px;
+  max-width: 100%;
+  display: grid;
+  gap: 18px;
+  text-align: left;
+}
+
+.connecting-card__head {
+  display: flex; align-items: center; gap: 14px;
+}
+
+.spinner {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent-400);
+  border-right-color: var(--accent-400);
+  animation: spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.connecting-card__title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg-0);
+  margin: 0;
+}
+.connecting-card__sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-1);
+  margin: 4px 0 0;
+}
+
+.connecting-card__log {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--fg-1);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 12px;
+  display: grid; gap: 2px;
+}
+.connecting-card__log .line {
+  display: flex; align-items: center; gap: 8px;
+}
+.connecting-card__log .line .arrow { color: var(--fg-3); }
+.connecting-card__log .line.ok .arrow  { color: var(--status-connected); }
+.connecting-card__log .line.now .arrow { color: var(--status-connecting); }
+.connecting-card__log .line.ok .ms,
+.connecting-card__log .line .ms { color: var(--fg-2); margin-left: auto; font-size: 11px; }
+.connecting-card__log .line.now .label { color: var(--fg-0); }
+.connecting-card__log .line .dot-mini {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: currentColor;
+  animation: term-blink 1s steps(1) infinite;
+  margin-left: auto;
+}
+.connecting-card__log .line.pending { color: var(--fg-3); }
+
+.connecting-card__cancel {
+  display: flex; justify-content: flex-end;
+}
+.connecting-card__cancel button {
+  appearance: none;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  font: 500 12px/1 var(--font-sans);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.connecting-card__cancel button:hover { background: var(--bg-3); color: var(--fg-0); }
+.connecting-card__cancel .k {
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 0 4px; height: 14px;
+  border-radius: 2px;
+  background: var(--bg-1); border: 1px solid var(--border); color: var(--fg-2);
+  display: inline-flex; align-items: center;
+}
+
+/* ─────────────────────── Fingerprint dialog ─────────── */
+
+.fp-stage {
+  position: relative;
+  flex: 1;
+  background: var(--ansi-bg);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.fp-stage::before {
+  /* dimmed connecting state visible behind */
+  content: "";
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(800px 360px at 50% 40%,
+      color-mix(in oklab, var(--accent-500) 6%, transparent),
+      transparent 70%);
+  pointer-events: none;
+}
+.fp-stage::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: color-mix(in oklab, var(--bg-0) 65%, transparent);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
+.fp-dialog {
+  position: relative;
+  z-index: 3;
+  width: 540px;
+  max-width: calc(100% - 48px);
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.fp-dialog__head {
+  padding: 18px 20px 14px;
+  display: flex; align-items: flex-start; gap: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.fp-dialog__seal {
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--status-connecting) 16%, var(--bg-2));
+  border: 1px solid color-mix(in oklab, var(--status-connecting) 40%, var(--border-strong));
+  color: var(--status-connecting);
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.fp-dialog__title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+.fp-dialog__title .host {
+  font-family: var(--font-mono);
+  color: var(--fg-0);
+  font-weight: 600;
+}
+.fp-dialog__sub {
+  font-size: 13px;
+  color: var(--fg-1);
+  margin: 4px 0 0;
+}
+
+.fp-dialog__body {
+  padding: 16px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.fp-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.fp-row .key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-2);
+}
+.fp-row .val {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg-0);
+  word-break: break-all;
+}
+.fp-row .copy {
+  background: transparent; border: 0; color: var(--fg-2);
+  cursor: pointer;
+  width: 24px; height: 24px;
+  border-radius: 4px;
+  display: grid; place-items: center;
+}
+.fp-row .copy:hover { background: var(--bg-3); color: var(--fg-0); }
+
+.fp-warn {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--status-connecting) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--status-connecting) 35%, var(--border-strong));
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--fg-0);
+}
+.fp-warn .icon {
+  color: var(--status-connecting);
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.fp-warn .body { line-height: 1.45; }
+.fp-warn .body strong { color: var(--status-connecting); font-weight: 600; }
+
+.fp-toggle {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--fg-1);
+}
+.fp-toggle .check {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  background: var(--accent-500);
+  display: grid; place-items: center;
+  color: white;
+  border: 1px solid color-mix(in oklab, var(--accent-700) 50%, transparent);
+  flex-shrink: 0;
+}
+
+.fp-dialog__foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 20px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+}
+.fp-dialog__foot .spacer { flex: 1; }
+
+.fp-btn {
+  appearance: none;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.fp-btn--reject {
+  background: transparent;
+  color: var(--status-error);
+  border-color: color-mix(in oklab, var(--status-error) 30%, transparent);
+}
+.fp-btn--reject:hover {
+  background: color-mix(in oklab, var(--status-error) 10%, transparent);
+}
+.fp-btn--accept {
+  background: var(--accent-500);
+  color: var(--accent-fg);
+  border-color: color-mix(in oklab, var(--accent-700) 50%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), var(--shadow-sm);
+}
+.fp-btn--accept:hover { background: var(--accent-600); }
+.fp-btn .k {
+  font-family: var(--font-mono); font-size: 10.5px;
+  height: 18px; padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(0,0,0,0.3);
+  color: rgba(255,255,255,0.9);
+  display: inline-flex; align-items: center;
+}
+.fp-btn--reject .k {
+  background: var(--bg-1);
+  border-color: var(--border);
+  color: var(--fg-2);
+}
