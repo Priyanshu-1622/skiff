@@ -404,3 +404,12 @@ See [LICENSE](./LICENSE) for full text.
 ---
 
 **Made with ❤️ by the open-source community**
+
+---------
+<div align="center">
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:bb9af7,100:7aa2f7&height=100&section=footer" width="100%" alt="footer"/>
+
+**If this saves you time, give it a star ⭐**
+
+</div>
