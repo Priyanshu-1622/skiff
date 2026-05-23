@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       concurrently:
-        specifier: ^9.0.0
+        specifier: ^9.2.1
         version: 9.2.1
 
   apps/api:

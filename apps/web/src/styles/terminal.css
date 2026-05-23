@@ -691,3 +691,247 @@
   border-color: var(--border);
   color: var(--fg-2);
 }
+
+/* ── Full-page terminal layout (Skiff additions) ──────────── */
+.term-page {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-0);
+  overflow: hidden;
+}
+
+.conn__back {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--fg-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.conn__back:hover {
+  color: var(--fg-0);
+  background: var(--bg-2);
+}
+
+.conn__status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-2);
+}
+
+.conn__font {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  height: 26px;
+}
+.conn__font button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 6px;
+  height: 100%;
+  border-radius: 4px;
+  min-width: 22px;
+}
+.conn__font button:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+.conn__font button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.conn__font-value {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  padding: 0 2px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.conn__help {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--fg-3);
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.conn__help:hover {
+  color: var(--fg-0);
+  background: var(--bg-2);
+}
+
+.conn__btn.reconnect {
+  background: var(--accent-500);
+  color: white;
+  border: 0;
+}
+.conn__btn.reconnect:hover {
+  background: var(--accent-600);
+}
+
+.term__screen-wrap {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #0A0B0D;
+}
+.term__screen {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Session ended / error overlay ────────────────────────── */
+.term__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 11, 13, 0.82);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 5;
+  animation: term-overlay-in 200ms ease;
+}
+@keyframes term-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.term__overlay-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 24px 28px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  text-align: center;
+  max-width: 420px;
+}
+.term__overlay-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 14px;
+}
+.term__overlay-icon.disconnected {
+  background: color-mix(in oklab, var(--fg-3) 14%, transparent);
+  color: var(--fg-2);
+}
+.term__overlay-icon.error {
+  background: color-mix(in oklab, var(--status-error) 18%, transparent);
+  color: var(--status-error);
+}
+.term__overlay-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-0);
+  margin-bottom: 6px;
+}
+.term__overlay-msg {
+  font-size: 13px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  margin-bottom: 18px;
+  word-break: break-word;
+}
+.term__overlay-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ── Keyboard help popover ────────────────────────────────── */
+.term__help {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 11, 13, 0.4);
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  animation: term-overlay-in 150ms ease;
+}
+.term__help-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 16px 18px;
+  min-width: 320px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+.term__help-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.term__help-head button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--fg-3);
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.term__help-head button:hover {
+  color: var(--fg-0);
+  background: var(--bg-3);
+}
+.term__help-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.term__help-card li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-1);
+}
+.term__help-card li span {
+  margin-left: auto;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+.term__help-card kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--fg-1);
+  font-weight: 500;
+}
+
+/* ── Status dot animations ────────────────────────────────── */
+.conn__label.connected .dot { background: var(--status-connected); }
+.conn__label.error .dot { background: var(--status-error); }
+.conn__label.idle .dot { background: var(--fg-3); }

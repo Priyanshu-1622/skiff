@@ -161,6 +161,10 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                 stream.write(Buffer.from(msg.data, "base64"));
               } else if (msg.type === "resize") {
                 stream.setWindow(msg.rows, msg.cols, 0, 0);
+              } else if (msg.type === "ping") {
+                if (socket.readyState === 1) {
+                  socket.send(JSON.stringify({ type: "pong", t: msg.t }));
+                }
               }
             } catch {
               // Ignore malformed messages
@@ -174,6 +178,16 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           socket.send(JSON.stringify({ type: "error", message: sshErr.message }));
         }
         socket.close(4002);
+      });
+
+      // Handle ping messages even before shell is ready
+      socket.on("message", (raw: Buffer | string) => {
+        try {
+          const msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
+          if (msg.type === "ping" && socket.readyState === 1) {
+            socket.send(JSON.stringify({ type: "pong", t: msg.t }));
+          }
+        } catch { /* ignore */ }
       });
 
       socket.on("close", () => {

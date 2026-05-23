@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell";
 import { useVault } from "@/lib/vault";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
 
 type Section = "security" | "import" | "backup" | "about";
@@ -107,18 +108,21 @@ function SecuritySection() {
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
-  const [msg, setMsg] = useState("");
   const [timeout, setTimeout_] = useState(15);
 
   const changePw = useMutation({
     mutationFn: () => apiPut("/api/settings/password", { currentPassword: currentPw, newPassword: newPw }),
-    onSuccess: () => { setMsg("✓ Password changed successfully"); setCurrentPw(""); setNewPw(""); setConfirmPw(""); },
-    onError: (e: any) => setMsg(`✗ ${e.message}`),
+    onSuccess: () => {
+      toast.success("Password changed", { description: "All credentials have been re-encrypted." });
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+    },
+    onError: (e: any) => toast.error("Couldn't change password", { description: e.message }),
   });
 
   const saveTimeout = useMutation({
     mutationFn: () => apiPut("/api/settings/idle-timeout", { minutes: timeout }),
-    onSuccess: () => setMsg(`✓ Idle timeout set to ${timeout} minutes`),
+    onSuccess: () => toast.success(`Idle timeout set to ${timeout} min`),
+    onError: (e: any) => toast.error("Couldn't save timeout", { description: e.message }),
   });
 
   return (
@@ -145,10 +149,10 @@ function SecuritySection() {
                 style={{ background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "7px 10px", color: "var(--fg-0)", font: "400 13px/1 var(--font-sans)", outline: "none" }} />
               <input className="field input" type="password" placeholder="Confirm new password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
                 style={{ background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "7px 10px", color: "var(--fg-0)", font: "400 13px/1 var(--font-sans)", outline: "none" }} />
-              {msg && <div style={{ fontSize: 12, color: msg.startsWith("✓") ? "var(--status-connected)" : "var(--status-error)" }}>{msg}</div>}
               <button className="btn btn--primary" style={{ alignSelf: "flex-start" }}
                 onClick={() => {
-                  if (newPw !== confirmPw) { setMsg("✗ Passwords don't match"); return; }
+                  if (newPw !== confirmPw) { toast.error("Passwords don't match"); return; }
+                  if (newPw.length < 8) { toast.error("Use at least 8 characters"); return; }
                   changePw.mutate();
                 }}
                 disabled={changePw.isPending || !currentPw || !newPw}
@@ -186,14 +190,21 @@ function SecuritySection() {
 function ImportSection() {
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<any[]>([]);
-  const [msg, setMsg] = useState("");
+  const [parseMsg, setParseMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
   const parse = async () => {
     try {
       const d = await apiPost<{ hosts: any[] }>("/api/import/parse", { configText: text });
-      setPreview(d.hosts); setMsg(`Found ${d.hosts.length} host${d.hosts.length !== 1 ? "s" : ""}`);
-    } catch (e: any) { setMsg(e.message); }
+      setPreview(d.hosts);
+      setParseMsg(`Found ${d.hosts.length} host${d.hosts.length !== 1 ? "s" : ""}`);
+      if (d.hosts.length === 0) {
+        toast.warning("No hosts found", { description: "Check that your config has Host entries." });
+      }
+    } catch (e: any) {
+      setParseMsg("");
+      toast.error("Couldn't parse config", { description: e.message });
+    }
   };
 
   const apply = async () => {
@@ -203,9 +214,13 @@ function ImportSection() {
         configText: text,
         selectedHosts: preview.map(h => h.alias),
       });
-      setMsg(`✓ Imported ${d.imported} host${d.imported !== 1 ? "s" : ""}!`);
-      setPreview([]); setText("");
-    } catch (e: any) { setMsg(e.message); }
+      toast.success(`Imported ${d.imported} host${d.imported !== 1 ? "s" : ""}`, {
+        description: "They're in your host list now.",
+      });
+      setPreview([]); setText(""); setParseMsg("");
+    } catch (e: any) {
+      toast.error("Import failed", { description: e.message });
+    }
     finally { setBusy(false); }
   };
 
@@ -225,7 +240,7 @@ function ImportSection() {
           />
           <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
             <button className="btn btn--primary" onClick={parse} disabled={!text.trim()}>Parse config</button>
-            {msg && <span style={{ fontSize: 12, color: msg.startsWith("✓") ? "var(--status-connected)" : "var(--fg-1)" }}>{msg}</span>}
+            {parseMsg && <span style={{ fontSize: 12, color: "var(--fg-2)" }}>{parseMsg}</span>}
           </div>
 
           {preview.length > 0 && (
@@ -253,12 +268,17 @@ function ImportSection() {
 
 function BackupSection() {
   const download = async () => {
-    const data = await apiGet("/api/settings/backup");
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `skiff-backup-${new Date().toISOString().split("T")[0]}.json`;
-    a.click(); URL.revokeObjectURL(url);
+    try {
+      const data = await apiGet("/api/settings/backup");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `skiff-backup-${new Date().toISOString().split("T")[0]}.json`;
+      a.click(); URL.revokeObjectURL(url);
+      toast.success("Backup downloaded", { description: "Store it somewhere safe — it's encrypted but it's all you've got if you forget your password." });
+    } catch (e: any) {
+      toast.error("Backup failed", { description: e.message });
+    }
   };
 
   return (
