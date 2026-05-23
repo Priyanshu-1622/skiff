@@ -1,406 +1,197 @@
 # Skiff
 
-**Self-hosted SSH connection manager. Open-source alternative to Termius.**
+A self-hosted SSH connection manager. Store hosts, organize them in folders, connect through an in-browser terminal. Credentials are encrypted at rest.
 
-Store SSH hosts, organize them in folders, manage credentials safely, and launch live in-browser terminal sessions. Everything runs on your server — your keys never leave your infrastructure.
+Open-source. AGPL-3.0. Single binary + SQLite — no cloud, no telemetry.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
 
----
+## Demo
+
+![Skiff demo](docs/demo.gif)
+
+### Screenshots
+
+![Empty state](docs/empty-state.png)
+*First-time setup — empty dashboard with import / add host CTAs.*
+
+![Add host dialog](docs/add-host.png)
+*Adding a host. Password or private key auth.*
+
+![Import from ssh config](docs/import.png)
+*Paste your ~/.ssh/config and Skiff parses it.*
+
+## Why I built this
+
+I had a text file called `servers.md` with a growing list of SSH commands I kept copy-pasting into my terminal. Every time I added a new VPS or rotated a key I'd promise myself I'd "set up a proper tool", then I'd open Termius, see the sign-in screen, and close it again. I didn't want my SSH inventory in someone else's cloud — and the desktop alternatives are either paid or feel like they were designed in 2011.
+
+So one weekend I figured how hard could it really be: encrypted SQLite + ssh2 + xterm.js. A couple of weeks later I had something I actually use every day. It's not finished — see "Known issues" for the rough edges — but it scratches the itch.
+
+## How it compares
+
+| | **Skiff** | Termius | Royal TSX | SecureCRT |
+|---|---|---|---|---|
+| Self-hosted | yes | no | no | no |
+| Open source | yes | no | no | no |
+| Price | free | freemium ($) | paid ($45+) | paid ($99+) |
+| Encryption at rest | yes | yes | yes | yes |
+| In-browser terminal | yes | no (native app) | no | no |
+| Mobile access | works on phone | iOS + Android apps | no | no |
+| Cloud sync | optional / never | required for sync | local only | local only |
+| Telemetry | none | yes | unknown | unknown |
+| Docker deploy | one command | n/a | n/a | n/a |
+| Team features | no (yet) | yes (paid) | yes | yes |
+
+Skiff is for one person who wants to own their SSH inventory. If you need shared team access, audit logs, and a slick mobile app, the paid tools are still ahead — Termius in particular is genuinely good if you're okay with the cloud sync. Skiff is for the case where you specifically don't want that.
 
 ## Features
 
--  **Vault encryption** — AES-256-GCM + argon2id, credentials encrypted at rest
--  **In-browser terminal** — xterm.js over WebSocket, no SSH client needed
--  **Folder organization** — nested folders, starred favorites, full-text search
--  **SSH config import** — paste `~/.ssh/config`, import all hosts in one click
--  **Password manager** — change master password, re-encrypts all credentials in transaction
--  **Dark/light theme** — design tokens from Claude Design, persists preference
--  **SSH fingerprint pinning** — MITM protection, saves on first connect
--  **Auto-lock** — configurable idle timeout (default 15 min)
--  **Single-command deploy** — Docker Compose, one container, SQLite
--  **No telemetry** — zero external network calls except your SSH targets
+- Encrypted credential vault. AES-256-GCM at rest, key derived from your master password with argon2id (OWASP params). The key lives in memory while you're unlocked and gets zeroed on lock or idle timeout. The password itself is never stored — only an HMAC verifier so we can tell you "wrong password" without having to decrypt anything.
+- In-browser terminal. xterm.js over a WebSocket. Real SSH session, no fake shell.
+- Folders, favorites, search. Search hits labels, hostnames, and usernames.
+- Imports your `~/.ssh/config`. Parses `Host`, `HostName`, `Port`, `User`, `IdentityFile`. Doesn't handle `Include` directives yet (see Known issues).
+- Dark / light themes. Persists in localStorage.
+- SSH host fingerprint pinning. First connect saves it; mismatches block the connection.
+- Auto-lock on idle. Configurable, defaults to 15 minutes.
+- Single docker compose command to deploy. SQLite, so no separate database to run.
 
-##  Use Cases
+## Quick start
 
-- Manage SSH access to your infrastructure from a web UI
-- Share SSH host inventory across your team (export/import vault backups)
-- Access servers from any device with a browser (no SSH client needed)
-- Organize hundreds of hosts in folders (production, staging, clients, etc.)
-- Self-host an alternative to Termius, Royal TSX, or SecureCRT
-
----
-
-## Quick Start
-
-### Prerequisites
-
-| Tool | Version | Installation |
-|------|---------|--------------|
-| **Node.js** | 20+ | [nodejs.org](https://nodejs.org) or `nvm install 20` |
-| **pnpm** | 9+ | `npm install -g pnpm@9` |
-
-### Development
+### Dev
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/Priyanshu-1622/skiff.git
 cd skiff
-
-# 2. Install dependencies (~30 seconds)
 pnpm install
-
-# 3. Start dev servers (web + api)
 pnpm dev
 ```
 
-Open **http://localhost:5173** → create your master password → start adding hosts!
+Then http://localhost:5173. First load asks you to set a master password — that's the vault.
 
-### Production (Docker)
+Requires Node 20+ and pnpm 9+. On Windows you'll need Visual Studio Build Tools because `better-sqlite3` and `argon2` are native. There's a note in Troubleshooting about this.
+
+### Docker
 
 ```bash
-# 1. Create environment file
 cp .env.example .env
-
-# 2. Generate a secure cookie secret
-openssl rand -hex 32
-# Add it to .env as SKIFF_COOKIE_SECRET=...
-
-# 3. Start the container
+# set SKIFF_COOKIE_SECRET=$(openssl rand -hex 32) in .env
 docker compose up -d --build
-
-# 4. Access at http://localhost:8080
 ```
 
-**Important:** Back up the `./data/` directory regularly — it contains your encrypted vault.
+Then http://localhost:8080. Back up `./data/` — that's where the encrypted vault lives.
 
----
-
-## Documentation
-
-### First Time Setup
-
-1. Open Skiff in your browser
-2. **Create master password** screen appears
-3. Choose a strong password (it encrypts all your SSH credentials)
-4. Click "Create vault"
-5. You're in! Add hosts manually or import from `~/.ssh/config`
-
-### Adding Hosts
-
-**Manually:**
-1. Click "+ Add host"
-2. Fill in: label, hostname, port (22), username
-3. Choose auth: Password or Private Key
-4. Optionally paste your SSH password or private key
-5. Click "Save host"
-
-**From SSH config:**
-1. Click Settings → Import
-2. Paste your `~/.ssh/config` contents
-3. Click "Parse config" → review hosts
-4. Click "Import all" → done!
-
-### Connecting to Hosts
-
-1. Click "Connect" on any host row
-2. Terminal opens in full-screen
-3. On first connect: SSH fingerprint is saved
-4. Type commands as normal
-5. `Ctrl+Shift+W` or click "Disconnect" to close
-
-### Organizing Hosts
-
-- **Folders:** Click "+" next to "FOLDERS" → create nested folders
-- **Star favorites:** Click ★ on any host → appears in "Favorites"
-- **Search:** Type in the search bar (searches label, hostname, username)
-- **Delete folder:** Hover over folder → × button appears
-
-### Security Settings
-
-**Change master password:**
-1. Settings → Security
-2. Enter current password + new password
-3. Click "Change password" → all credentials re-encrypted
-
-**Auto-lock timeout:**
-1. Settings → Security → Idle timeout
-2. Set minutes (1-1440)
-3. Click "Save" → vault locks after inactivity
-
-**Backup vault:**
-1. Settings → Backup
-2. Click "Download backup"
-3. Stores encrypted vault as JSON (can be restored later)
-
----
-
-## Architecture
-
-### Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | React 18 + TypeScript + Vite |
-| **Routing** | TanStack Router v7 |
-| **State** | Zustand + TanStack Query |
-| **Styling** | Vanilla CSS with design tokens |
-| **Terminal** | xterm.js + FitAddon + WebLinksAddon |
-| **Backend** | Node.js 20 + Fastify |
-| **Database** | better-sqlite3 (WAL mode) |
-| **SSH** | ssh2 library |
-| **Crypto** | Node.js crypto (AES-256-GCM) + argon2 |
-
-### Project Structure
+## Project structure
 
 ```
 skiff/
 ├── apps/
-│   ├── web/                    # React frontend
+│   ├── web/                    React frontend (Vite)
 │   │   ├── src/
-│   │   │   ├── components/     # Shell, icons, primitives
-│   │   │   ├── routes/         # Pages: unlock, dashboard, terminal, settings
-│   │   │   ├── lib/            # API client, vault store, theme, WebSocket
-│   │   │   └── styles/         # Design tokens + screen-level CSS
+│   │   │   ├── components/     Shell (Topbar, Sidebar, AppShell), icons
+│   │   │   ├── routes/         unlock, dashboard, terminal, settings
+│   │   │   ├── lib/            API client, vault store, theme, ws client
+│   │   │   └── styles/         Design tokens + per-screen CSS
 │   │   └── vite.config.ts
-│   └── api/                    # Fastify backend
+│   └── api/                    Fastify backend
 │       ├── src/
-│       │   ├── crypto/         # vault.ts (AES-256-GCM), session-store.ts
-│       │   ├── routes/         # auth, hosts, folders, terminal, import, settings
-│       │   ├── db/             # SQLite schema, client
-│       │   └── lib/            # Auth middleware, helpers
+│       │   ├── crypto/         AES-256-GCM + argon2id, session store
+│       │   ├── routes/         auth, hosts, folders, terminal, import, settings
+│       │   ├── db/             SQLite schema + connection
+│       │   └── lib/            auth middleware, response helpers, id gen
 │       └── server.ts
 ├── packages/
-│   └── shared/                 # Types shared between frontend + backend
-├── Dockerfile                  # Multi-stage production build
-├── docker-compose.yml          # One-command production deploy
-└── README.md                   # This file
+│   └── shared/                 Types shared between web and api
+├── docs/                       Demo gif + screenshots
+├── Dockerfile                  Multi-stage production build
+├── docker-compose.yml          One-command production deploy
+└── .env.example                All configurable env vars
 ```
 
-### Security Model
+It's a pnpm workspace with two apps and one shared types package. The frontend and backend are decoupled — the web app talks to the API over HTTP + WebSocket, no direct imports between them.
 
-**Encryption flow:**
-1. Master password → argon2id KDF (OWASP params: 3 iterations, 64 MiB memory, parallelism 4) → 32-byte vault key
-2. Vault key → compute HMAC verifier → store in DB (used to validate password without decrypting)
-3. Each credential → AES-256-GCM(plaintext, vault_key) → store {nonce, ciphertext} in DB
-4. On unlock → derive vault key from password → verify against HMAC → key stored in process memory only
-5. On lock / idle timeout → zero vault key → session destroyed
+## Known issues / rough edges
 
-**What's encrypted:**
-- SSH passwords
-- SSH private keys
-- Private key passphrases
+These are real things I've noticed using Skiff. Some are easy fixes I haven't gotten to; some need a redesign.
 
-**What's NOT encrypted (no sensitive data):**
-- Host labels, hostnames, ports, usernames
-- Folder names
-- SSH fingerprints
+- **Import doesn't handle `Include` directives.** If your `~/.ssh/config` does `Include ~/.ssh/config.d/*`, those hosts get skipped silently. I'll fix it when I personally need it — right now my config is one file.
+- **No folder reordering.** You can create folders and delete them, but you can't drag to reorder or nest existing ones. Plan the hierarchy before you create them, or be prepared to delete and re-create.
+- **No "restore from backup" UI.** Settings → Backup downloads an encrypted JSON. To restore you stop the server, replace `data/skiff.sqlite` manually, restart. There's no in-app flow yet.
+- **Terminal resize is occasionally laggy.** xterm.js sends the new dimensions on resize, but during the resize gesture the output can wrap weirdly for a few frames. Stops looking broken once you let go.
+- **The `.sqlite-shm` and `.sqlite-wal` files.** SQLite in WAL mode creates two sidecar files next to the main DB. They're normal — do **not** delete them while Skiff is running. You'll corrupt the database. Ask me how I know.
+- **First-time docker build is slow.** Native modules (better-sqlite3, argon2) compile from source the first time, which can take 3-5 minutes on a small VPS. After that it's cached.
 
-**Session management:**
-- Vault key stored in-memory only (never touches disk)
-- HTTP-only cookies (SameSite=Lax, Secure in production)
-- Auto-lock after configurable idle timeout
-- All sessions destroyed on master password change
+## What Skiff doesn't do
 
-**Rate limiting:**
-- Global: 300 requests/minute
-- Unlock attempts: 5 failures → 5 minute lockout
-- Failed unlock attempts logged to DB
+If you need any of these, Skiff isn't the right tool yet:
 
----
+- Multi-user. It's single-vault, single-user. No teams, no RBAC.
+- SFTP / file transfers. SSH sessions only.
+- Bastion / jump host chains. Direct connections only.
+- Recording sessions or audit logs.
+- Mobile-optimized terminal. The dashboard works on phones but the terminal really wants a keyboard.
+- LDAP / SAML / SSO. Just the master password.
 
-## Development
+Most of these are on the roadmap. Some might never be — if you need a polished team-grade tool today, Termius or Teleport will serve you better.
 
-### Setup
+## Stack
 
-```bash
-# Install all dependencies
-pnpm install
+| | |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, TanStack Router, TanStack Query, Zustand |
+| Backend  | Node 20, Fastify, ssh2, better-sqlite3 (WAL mode) |
+| Crypto   | Node `crypto` (AES-256-GCM), argon2 |
+| Terminal | xterm.js + FitAddon + WebLinksAddon |
+| Styling  | Plain CSS with design tokens — no Tailwind, no CSS-in-JS |
 
-# Start dev servers (web + api in parallel)
-pnpm dev
+Picked `better-sqlite3` over the async sqlite drivers because the synchronous API makes transactions and prepared statements way less fiddly — and SQLite is fast enough that the "blocking" concern doesn't actually matter for a single-user app.
 
-# Or start individually:
-pnpm dev:web    # Frontend only (port 5173)
-pnpm dev:api    # Backend only (port 8080)
-```
+## Security model — the short version
 
-### Commands
+Master password → argon2id → 32-byte vault key (in memory only).
+Each credential → AES-256-GCM(plaintext, vault key) → SQLite as `(nonce, ciphertext)`.
+On unlock, we derive the key from your input, compare its HMAC to the stored verifier, and if they match the key sits in memory until you lock or go idle.
 
-```bash
-pnpm dev            # Start both servers
-pnpm build          # Build all packages for production
-pnpm typecheck      # TypeScript check (all packages)
-pnpm test           # Run tests
-pnpm clean          # Remove all node_modules and build artifacts
-```
+What's encrypted: SSH passwords, private keys, passphrases.
+What's not: labels, hostnames, ports, usernames, folder names. These aren't secrets — they're metadata.
 
-### Database Location
+If you forget your master password your credentials are gone. There's no recovery and there can't be one — that's the whole point.
 
-**Development:** `apps/api/data/skiff.sqlite`  
-**Docker:** `/app/data/skiff.sqlite` (mounted to `./data/` on host)
+Full version: [SECURITY.md](./SECURITY.md).
 
-To inspect the database:
-```bash
-sqlite3 apps/api/data/skiff.sqlite
-.tables
-SELECT * FROM hosts;
-```
+## Configuration
 
-### Environment Variables
+`.env.example` lists everything. The ones you actually need to think about:
 
-See `.env.example` for all options:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `development` | `production` or `development` |
-| `SKIFF_PORT` | `8080` | API server port |
-| `SKIFF_HOST` | `0.0.0.0` | API server bind address |
-| `SKIFF_COOKIE_SECRET` | (random) | Session cookie signing secret (required in production) |
-| `SKIFF_DB_PATH` | `./data/skiff.sqlite` | SQLite database file path |
-
----
-
-## Docker
-
-### Build
-
-```bash
-docker build -t skiff:latest .
-```
-
-### Run
-
-```bash
-docker run -d \
-  -p 8080:8080 \
-  -v $(pwd)/data:/app/data \
-  -e SKIFF_COOKIE_SECRET=$(openssl rand -hex 32) \
-  --name skiff \
-  skiff:latest
-```
-
-### Docker Compose (recommended)
-
-```bash
-# Start
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop
-docker compose down
-
-# Rebuild after code changes
-docker compose up -d --build
-```
-
----
+| Variable | Default | What it does |
+|---|---|---|
+| `SKIFF_COOKIE_SECRET` | random | **Set this in production.** Signs session cookies. |
+| `SKIFF_PORT` | `8080` | API port |
+| `SKIFF_DB_PATH` | `./data/skiff.sqlite` | Where the vault lives |
 
 ## Troubleshooting
 
-### Port 8080 already in use
+### Windows: `better-sqlite3` won't compile
 
-```bash
-# Find what's using the port
-lsof -i :8080
+You need Visual Studio Build Tools with "Desktop development with C++". The standalone Node installer doesn't include them. Grab them from https://aka.ms/vs/17/release/vs_BuildTools.exe, restart your terminal, then `pnpm install` again.
 
-# Change the port in .env
-SKIFF_PORT=3000
-```
+### Port 8080 is already in use
 
-### better-sqlite3 won't compile
-
-**Linux:**
-```bash
-sudo apt install python3 make g++
-pnpm install
-```
-
-**macOS:**
-```bash
-xcode-select --install
-pnpm install
-```
-
-**Windows:**
-- Install [Node.js 20 LTS](https://nodejs.org/dist/v20.19.2/node-v20.19.2-x64.msi)
-- Install [Visual Studio Build Tools](https://aka.ms/vs/17/release/vs_BuildTools.exe)
-  - Select "Desktop development with C++"
-- Restart terminal
-- `pnpm install`
-
-### "Cannot connect to API" on startup
-
-Make sure both servers are running:
-```bash
-# Check if API is up
-curl http://localhost:8080/api/health
-
-# Should return: {"ok":true,"data":{"status":"ok",...}}
-```
-
-### Session expired / vault locked mid-session
-
-The vault auto-locks after the configured idle timeout. This is a security feature. Just unlock again with your master password.
-
----
+Set `SKIFF_PORT=3000` (or whatever) in `.env`. The Vite dev server's proxy follows it automatically.
 
 ## Contributing
 
-Contributions welcome! Please:
+Issues and PRs welcome. If it's a feature, open an issue first — easier to discuss before code than after.
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing`)
-5. Open a Pull Request
-
-### Code Style
-
-- TypeScript strict mode enabled
-- ESLint + Prettier (run `pnpm lint`)
-- Conventional Commits preferred
-
-### Testing
-
-```bash
-# Run all tests
-pnpm test
-
-# Run API tests only
-pnpm --filter @skiff/api test
-```
-
----
+Repo conventions: TypeScript strict mode is on, please don't turn it off. Format with Prettier. Commit messages — I don't care much, just be specific enough that `git log --oneline` is readable.
 
 ## License
 
-**AGPL-3.0-only**
+AGPL-3.0. You can run it, modify it, host it. If you run a modified version as a service, the modified source has to be available under AGPL too.
 
-You can use, modify, and deploy Skiff freely. If you run a modified version as a network service (e.g., SaaS), you must share your source code under the same license.
-
-See [LICENSE](./LICENSE) for full text.
+[LICENSE](./LICENSE).
 
 ---
 
-## Acknowledgments
-
-- Design system: [Claude Design](https://design.claude.ai)
-- Terminal: [xterm.js](https://xtermjs.org/)
-- SSH: [ssh2](https://github.com/mscdex/ssh2)
-- Icons: Custom SVG set
-
----
-
-## Support
-
-- **Issues:** [GitHub Issues](https://github.com/Priyanshu-1622/skiff/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/Priyanshu-1622/skiff/discussions)
-
----
-
-**Built by Priyanshu. Bug reports and PRs welcome.**
+Built by Priyanshu. Bug reports and PRs welcome.
