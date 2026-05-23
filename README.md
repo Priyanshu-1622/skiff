@@ -10,20 +10,20 @@ Store SSH hosts, organize them in folders, manage credentials safely, and launch
 
 ---
 
-## ✨ Features
+## Features
 
-- 🔐 **Vault encryption** — AES-256-GCM + argon2id, credentials encrypted at rest
-- 💻 **In-browser terminal** — xterm.js over WebSocket, no SSH client needed
-- 📂 **Folder organization** — nested folders, starred favorites, full-text search
-- 📥 **SSH config import** — paste `~/.ssh/config`, import all hosts in one click
-- 🔑 **Password manager** — change master password, re-encrypts all credentials in transaction
-- 🎨 **Dark/light theme** — design tokens from Claude Design, persists preference
-- 🔒 **SSH fingerprint pinning** — MITM protection, saves on first connect
-- ⏱️ **Auto-lock** — configurable idle timeout (default 15 min)
-- 🚀 **Single-command deploy** — Docker Compose, one container, SQLite
-- 🔕 **No telemetry** — zero external network calls except your SSH targets
+-  **Vault encryption** — AES-256-GCM + argon2id, credentials encrypted at rest
+-  **In-browser terminal** — xterm.js over WebSocket, no SSH client needed
+-  **Folder organization** — nested folders, starred favorites, full-text search
+-  **SSH config import** — paste `~/.ssh/config`, import all hosts in one click
+-  **Password manager** — change master password, re-encrypts all credentials in transaction
+-  **Dark/light theme** — design tokens from Claude Design, persists preference
+-  **SSH fingerprint pinning** — MITM protection, saves on first connect
+-  **Auto-lock** — configurable idle timeout (default 15 min)
+-  **Single-command deploy** — Docker Compose, one container, SQLite
+-  **No telemetry** — zero external network calls except your SSH targets
 
-## 🎯 Use Cases
+##  Use Cases
 
 - Manage SSH access to your infrastructure from a web UI
 - Share SSH host inventory across your team (export/import vault backups)
@@ -33,7 +33,7 @@ Store SSH hosts, organize them in folders, manage credentials safely, and launch
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -78,7 +78,7 @@ docker compose up -d --build
 
 ---
 
-## 📖 Documentation
+## Documentation
 
 ### First Time Setup
 
@@ -137,7 +137,7 @@ docker compose up -d --build
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ### Stack
 
@@ -211,7 +211,7 @@ skiff/
 
 ---
 
-## 🛠️ Development
+## Development
 
 ### Setup
 
@@ -263,7 +263,7 @@ See `.env.example` for all options:
 
 ---
 
-## 🐳 Docker
+## Docker
 
 ### Build
 
@@ -300,7 +300,7 @@ docker compose up -d --build
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Port 8080 already in use
 
@@ -349,7 +349,7 @@ The vault auto-locks after the configured idle timeout. This is a security featu
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please:
 
@@ -377,7 +377,7 @@ pnpm --filter @skiff/api test
 
 ---
 
-## 📝 License
+## License
 
 **AGPL-3.0-only**
 
@@ -387,7 +387,7 @@ See [LICENSE](./LICENSE) for full text.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Design system: [Claude Design](https://design.claude.ai)
 - Terminal: [xterm.js](https://xtermjs.org/)
@@ -396,20 +396,11 @@ See [LICENSE](./LICENSE) for full text.
 
 ---
 
-## 📧 Support
+## Support
 
 - **Issues:** [GitHub Issues](https://github.com/Priyanshu-1622/skiff/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/Priyanshu-1622/skiff/discussions)
 
 ---
 
-**Made with ❤️ by the open-source community**
-
----------
-<div align="center">
-
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:bb9af7,100:7aa2f7&height=100&section=footer" width="100%" alt="footer"/>
-
-**If this saves you time, give it a star ⭐**
-
-</div>
+**Built by Priyanshu. Bug reports and PRs welcome.**
