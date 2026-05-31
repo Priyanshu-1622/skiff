@@ -10,7 +10,7 @@
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via email to: `security@yourdomain.com` (replace with your actual security contact)
+Instead, please report them via email to: `skiffsshmanager@gmail.com"
 
 Include:
 - Description of the vulnerability
