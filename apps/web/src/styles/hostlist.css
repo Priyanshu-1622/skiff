@@ -163,11 +163,11 @@
   display: grid;
   grid-template-columns:
     18px            /* dot */
-    minmax(180px, 1.3fr)  /* label */
-    minmax(220px, 1.5fr)  /* user@host:port */
-    minmax(140px, 1fr)    /* tags */
-    96px            /* last */
-    72px;           /* launch */
+    minmax(160px, 1.3fr)  /* label */
+    minmax(200px, 1.5fr)  /* user@host:port */
+    minmax(120px, 1fr)    /* tags */
+    88px            /* last */
+    176px;          /* actions: edit + delete + connect */
   gap: 16px;
   align-items: center;
   padding: 0 24px;
@@ -321,11 +321,12 @@
 .list__row .last.now { color: var(--status-connected); }
 .list__row .last.never { color: var(--fg-3); }
 
-/* launch button cell — hidden by default, shown on hover/selection */
+/* actions cell — Connect always visible; edit/delete reveal on hover */
 .list__row .launch-cell {
-  display: flex; justify-content: flex-end;
-  opacity: 0;
-  transition: opacity 100ms;
+  display: flex; justify-content: flex-end; align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: visible;
 }
 .list__row:hover .launch-cell,
 .list__row[aria-selected="true"] .launch-cell { opacity: 1; }
