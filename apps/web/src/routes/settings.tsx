@@ -108,7 +108,7 @@ function SecuritySection() {
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
-  const [timeout, setTimeout_] = useState(15);
+  const [timeout, setTimeout_] = useState("15");
 
   const changePw = useMutation({
     mutationFn: () => apiPut("/api/settings/password", { currentPassword: currentPw, newPassword: newPw }),
@@ -119,9 +119,12 @@ function SecuritySection() {
     onError: (e: any) => toast.error("Couldn't change password", { description: e.message }),
   });
 
+  const timeoutNum = parseInt(timeout, 10);
+  const timeoutValid = Number.isFinite(timeoutNum) && timeoutNum >= 1 && timeoutNum <= 1440;
+
   const saveTimeout = useMutation({
-    mutationFn: () => apiPut("/api/settings/idle-timeout", { minutes: timeout }),
-    onSuccess: () => toast.success(`Idle timeout set to ${timeout} min`),
+    mutationFn: () => apiPut("/api/settings/idle-timeout", { minutes: timeoutNum }),
+    onSuccess: () => toast.success(`Idle timeout set to ${timeoutNum} min`),
     onError: (e: any) => toast.error("Couldn't save timeout", { description: e.message }),
   });
 
@@ -175,10 +178,10 @@ function SecuritySection() {
               <div className="s-row__desc">Lock the vault automatically after this many minutes of inactivity.</div>
             </div>
             <div className="s-row__control" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="number" min={1} max={1440} value={timeout} onChange={e => setTimeout_(parseInt(e.target.value) || 15)}
+              <input type="number" min={1} max={1440} value={timeout} onChange={e => setTimeout_(e.target.value)}
                 style={{ width: 64, background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "5px 8px", color: "var(--fg-0)", fontFamily: "var(--font-mono)", fontSize: 13, outline: "none", textAlign: "right" }} />
               <span style={{ fontSize: 12, color: "var(--fg-2)" }}>min</span>
-              <button className="btn btn--secondary" style={{ height: 28, padding: "0 10px", fontSize: 12 }} onClick={() => saveTimeout.mutate()}>Save</button>
+              <button className="btn btn--secondary" style={{ height: 28, padding: "0 10px", fontSize: 12 }} disabled={!timeoutValid || saveTimeout.isPending} onClick={() => saveTimeout.mutate()}>Save</button>
             </div>
           </div>
         </div>

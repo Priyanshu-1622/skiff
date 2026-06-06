@@ -1,17 +1,13 @@
-/**
- * Fastify application factory.
- *
- * Exported as buildApp() so tests can spin up an in-memory app without
- * binding to a port. The server.ts entry point calls buildApp() then
- * listens.
- */
-
 import Fastify, { type FastifyInstance, type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
+import fastifyStatic from "@fastify/static";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 
 import { openDatabase, SCHEMA_VERSION, type SkiffDb } from "./db/client.js";
 import type { Config } from "./config.js";
@@ -47,8 +43,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   let prettyTransport: { target: string; options: object } | undefined;
   if (config.nodeEnv !== "production") {
     try {
-      // Dynamic import behind a variable so TS doesn't fail when
-      // pino-pretty isn't installed (it's an optional dep).
       const pinoPrettyModuleName = "pino-pretty";
       await import(pinoPrettyModuleName);
       prettyTransport = {
@@ -69,30 +63,19 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     trustProxy: false,
   });
 
-  // ─── DB ─────────────────────────────────────────────────────────
   const db = opts.db ?? openDatabase({ dataDir: config.dataDir });
   app.decorate("skiffDb", db);
   app.addHook("onClose", async () => {
     db.close();
   });
 
-  // ─── Security headers ──────────────────────────────────────────
-  // helmet sets a sane CSP, HSTS, frame-options, etc. We deliberately
-  // do NOT enable contentSecurityPolicy here because the web client is
-  // served separately (Vite in dev, or behind a reverse proxy in prod);
-  // CSP for the API JSON responses isn't useful.
   await app.register(helmet, {
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
   });
 
-  // ─── CORS ──────────────────────────────────────────────────────
-  // In dev: allow the Vite origin so we can also call from the browser
-  // directly during debugging (the proxy is the normal path).
-  // In prod: only allow trustedOrigins. If empty, refuse all cross-origin.
   await app.register(cors, {
     origin: (origin, cb) => {
-      // Same-origin requests have no Origin header.
       if (!origin) {
         cb(null, true);
         return;
@@ -107,7 +90,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     credentials: true,
   });
 
-  // ─── Cookies ───────────────────────────────────────────────────
   await app.register(cookie, {
     secret: config.cookieSecret,
     parseOptions: {
@@ -118,21 +100,14 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     },
   });
 
-  // ─── Global rate limit ─────────────────────────────────────────
-  // Soft global ceiling. Auth-specific routes layer additional, much
-  // stricter limits on top.
   await app.register(rateLimit, {
     max: 300,
     timeWindow: "1 minute",
   });
 
-  // ─── Error handler ─────────────────────────────────────────────
-  // Normalize errors into the ApiResult envelope so the client never
-  // has to handle two response shapes.
   app.setErrorHandler((error: FastifyError, req, reply) => {
     req.log.error({ err: error }, "Request failed");
 
-    // Zod schema validation
     if (error instanceof ZodError) {
       const firstIssue = error.issues[0];
       const message = firstIssue
@@ -141,21 +116,18 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, message));
     }
 
-    // Fastify built-in validation errors
     if (error.statusCode === 400 || error.validation) {
       return reply
         .code(400)
         .send(err(ApiErrorCode.VALIDATION_FAILED, error.message));
     }
 
-    // Rate limit
     if (error.statusCode === 429) {
       return reply
         .code(429)
         .send(err(ApiErrorCode.RATE_LIMITED, "Too many requests"));
     }
 
-    // Fallback
     return reply
       .code(error.statusCode ?? 500)
       .send(
@@ -168,27 +140,52 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       );
   });
 
-  app.setNotFoundHandler((_req, reply) => {
-    return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Not found"));
-  });
-
-  // ─── WebSocket ──────────────────────────────────────────────
   await app.register(websocket);
 
-  // ─── Session store ─────────────────────────────────────────
-  const sessionStore = new SessionStore(15);
+  // Serve the built web UI. In the Docker image the compiled API lives at
+  // /app/apps/api/dist and the frontend at /app/apps/web/dist.
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const webDist = join(__dirname, "..", "..", "web", "dist");
+  const hasWebBuild = existsSync(join(webDist, "index.html"));
+
+  if (hasWebBuild) {
+    await app.register(fastifyStatic, {
+      root: webDist,
+      prefix: "/",
+      wildcard: false,
+    });
+  }
+
+  app.setNotFoundHandler((req, reply) => {
+    // API routes that don't exist return a JSON 404.
+    if (req.url.startsWith("/api/") || !hasWebBuild || req.method !== "GET") {
+      return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Not found"));
+    }
+    // Everything else is a client-side route — hand back index.html and let
+    // the SPA router take over (so refreshing /settings etc. works).
+    return reply.sendFile("index.html");
+  });
+
+
+  // Idle timeout is read from the vault so it persists across restarts.
+  const rawDb = db.raw;
+  const vaultMeta = rawDb.prepare(
+    "SELECT idle_timeout_minutes FROM vault_meta WHERE id = 1"
+  ).get() as { idle_timeout_minutes: number } | undefined;
+  const idleTimeout = vaultMeta?.idle_timeout_minutes ?? 15;
+  const sessionStore = new SessionStore(idleTimeout);
+
   app.addHook("onClose", async () => {
     sessionStore.close();
   });
 
-  // ─── Routes ────────────────────────────────────────────────────
   const startedAt = new Date();
   await app.register(healthRoute({ schemaVersion: SCHEMA_VERSION, startedAt }));
-  await app.register(authRoutes({ sessionStore }));
+  await app.register(authRoutes({ sessionStore, config }));
   await app.register(hostRoutes({ sessionStore }));
   await app.register(terminalRoutes({ sessionStore }));
   await app.register(importRoutes({ sessionStore }));
-  await app.register(settingsRoutes({ sessionStore }));
+  await app.register(settingsRoutes({ sessionStore, config }));
 
   return app;
 }

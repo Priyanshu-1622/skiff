@@ -1,7 +1,3 @@
-/**
- * Auth middleware: require an unlocked vault for protected routes.
- */
-
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { SessionStore } from "../crypto/session-store.js";
 import { err } from "../lib/response.js";

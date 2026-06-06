@@ -77,6 +77,12 @@ Requires Node 20+ and pnpm 9+. On Windows you'll need Visual Studio Build Tools 
 ```bash
 cp .env.example .env
 # set SKIFF_COOKIE_SECRET=$(openssl rand -hex 32) in .env
+
+# Create the data directory as your own user BEFORE starting.
+# If you skip this, Docker creates it as root and the container
+# (which runs as the unprivileged node user) can't write the database.
+mkdir -p data
+
 docker compose up -d --build
 ```
 

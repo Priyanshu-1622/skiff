@@ -15,10 +15,10 @@ export function UnlockRoute() {
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(false);
 
-  useEffect(() => { fetchStatus(); }, []);
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
   useEffect(() => {
     if (!loading && status?.unlocked) navigate({ to: "/" });
-  }, [loading, status]);
+  }, [loading, status, navigate]);
 
   const isSetup = !status?.initialized;
 
@@ -31,6 +31,11 @@ export function UnlockRoute() {
     e.preventDefault();
     setError("");
     if (!password) return;
+    if (isSetup && password.length < 8) {
+      setError("Use at least 8 characters");
+      triggerShake();
+      return;
+    }
     if (isSetup && password !== confirm) {
       setError("Passwords don't match");
       triggerShake();

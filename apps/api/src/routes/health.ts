@@ -1,15 +1,3 @@
-/**
- * Health check route.
- *
- * Returns basic liveness info plus a DB connectivity check. Used by:
- *   - Docker HEALTHCHECK
- *   - The frontend's Day 1 "is the backend up?" indicator
- *   - Eventually, monitoring/uptime tools
- *
- * Deliberately does NOT require auth — health endpoints that need a
- * password are useless for monitoring.
- */
-
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../lib/response.js";
 

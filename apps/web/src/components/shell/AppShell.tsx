@@ -14,7 +14,7 @@ export function AppShell({ children, topbar = {}, sidebar = {} }: AppShellProps)
       <Topbar
         searchValue={topbar.searchValue ?? ""}
         onSearchChange={topbar.onSearchChange ?? (() => {})}
-        username={topbar.username ?? "admin"}
+        username={topbar.username ?? "Vault"}
         hideSearch={topbar.hideSearch}
       />
       <Sidebar {...(sidebar as SidebarProps)} />

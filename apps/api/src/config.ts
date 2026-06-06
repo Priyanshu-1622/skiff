@@ -1,9 +1,3 @@
-/**
- * Server configuration loaded from environment variables, with
- * sensible defaults for local dev. Validated with zod so we fail
- * fast on misconfiguration.
- */
-
 import { z } from "zod";
 import { resolve } from "node:path";
 
@@ -55,7 +49,9 @@ export function loadConfig(): Config {
   const raw = {
     dataDir: resolve(process.env.SKIFF_DATA_DIR ?? "./data"),
     port: process.env.SKIFF_PORT ?? 8080,
-    host: process.env.SKIFF_HOST ?? "127.0.0.1",
+    // Docker without an explicit SKIFF_HOST env var. For local non-Docker dev,
+    // set SKIFF_HOST=127.0.0.1 in your shell if you want localhost-only binding.
+    host: process.env.SKIFF_HOST ?? "0.0.0.0",
     nodeEnv,
     trustedOrigins,
     cookieSecret,

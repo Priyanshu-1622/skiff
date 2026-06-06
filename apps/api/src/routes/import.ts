@@ -1,13 +1,7 @@
-/**
- * SSH config import route.
- * Parses ~/.ssh/config format and bulk-creates hosts.
- */
-
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { ok } from "../lib/response.js";
 import { generateId } from "../lib/id.js";
-import { encrypt } from "../crypto/vault.js";
 import type { SessionStore } from "../crypto/session-store.js";
 import { requireUnlocked } from "../lib/auth-middleware.js";
 
@@ -25,14 +19,12 @@ export const importRoutes: (deps: ImportRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
     const auth = requireUnlocked(deps.sessionStore);
 
-    // ─── POST /api/import/parse — parse config, return preview ───
     app.post("/api/import/parse", { preHandler: auth }, async (req) => {
       const { configText } = z.object({ configText: z.string() }).parse(req.body);
       const hosts = parseSSHConfig(configText);
       return ok({ hosts });
     });
 
-    // ─── POST /api/import/apply — create hosts from parsed config ─
     app.post("/api/import/apply", { preHandler: auth }, async (req) => {
       const body = ImportBody.parse(req.body);
       const parsed = parseSSHConfig(body.configText);
@@ -48,40 +40,37 @@ export const importRoutes: (deps: ImportRouteDeps) => FastifyPluginAsync =
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', 0, ?)`
       );
 
-      const insertCred = db.prepare(
-        "INSERT INTO credentials (id, kind, nonce, encrypted_blob, created_at) VALUES (?, ?, ?, ?, ?)"
-      );
-
       const tx = db.transaction(() => {
         for (const h of selected) {
           const hostId = generateId("hst");
-          let credentialId: string | null = null;
 
-          if (h.identityFile) {
-            credentialId = generateId("crd");
-            const encrypted = encrypt(
-              `# Imported from SSH config\n# IdentityFile: ${h.identityFile}\n# You may need to update this with the actual private key content`,
-              req.vaultKey,
-            );
-            insertCred.run(credentialId, "key", encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
-          }
-
+          // key-based imports. The IdentityFile path is a local path on the
+          // user's machine — it is not the key content. Storing a comment string
+          // as the credential causes ssh2 to fail with a confusing "invalid key"
+          // error at connect time. Instead, leave credential_id null so the
+          // user is prompted to paste the actual key content when they connect.
           insertHost.run(
             hostId, body.folderId, h.alias, h.hostname || h.alias,
             h.port || 22, h.user || "root",
             h.identityFile ? "key" : "password",
-            credentialId, new Date().toISOString(),
+            null, // credential_id intentionally null for key-based imports
+            new Date().toISOString(),
           );
           created.push(hostId);
         }
       });
 
       tx();
-      return ok({ imported: created.length, hostIds: created });
+      return ok({
+        imported: created.length,
+        hostIds: created,
+        // Surface which hosts need credentials so the UI can warn the user
+        needsCredential: selected
+          .filter((h) => h.identityFile)
+          .map((h) => h.alias),
+      });
     });
   };
-
-// ─── SSH Config Parser ──────────────────────────────────────────
 
 interface ParsedHost {
   alias: string;
@@ -106,10 +95,12 @@ function parseSSHConfig(text: string): ParsedHost[] {
     const kw = keyword!.toLowerCase();
 
     if (kw === "host") {
-      // Skip wildcards
-      if (value!.includes("*") || value!.includes("?")) continue;
-      // Commit previous host
+      // Commit the previous host before starting (or skipping) the next one.
       if (current) hosts.push(current);
+      current = null;
+      // Skip wildcard patterns — their directives apply to multiple hosts
+      // and we can't represent that as a single entry.
+      if (value!.includes("*") || value!.includes("?")) continue;
       current = { alias: value!.trim(), hostname: null, port: null, user: null, identityFile: null };
     } else if (current) {
       switch (kw) {

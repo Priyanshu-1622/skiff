@@ -31,7 +31,7 @@
     "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter @skiff/web dev\" \"pnpm --filter @skiff/api dev\"",
     "dev:web": "pnpm --filter @skiff/web dev",
     "dev:api": "pnpm --filter @skiff/api dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @skiff/shared build && pnpm --filter @skiff/api build && pnpm --filter @skiff/web build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "clean": "pnpm -r exec rm -rf node_modules dist .turbo && rm -rf node_modules"

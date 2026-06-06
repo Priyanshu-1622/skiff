@@ -1,7 +1,3 @@
-/**
- * WebSocket client for the SSH terminal.
- */
-
 export interface TerminalMessage {
   type: "data" | "status" | "error" | "fingerprint_new" | "fingerprint_mismatch" | "pong";
   data?: string;

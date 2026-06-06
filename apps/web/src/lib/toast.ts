@@ -1,13 +1,3 @@
-/**
- * Toast notification system. Replaces alert() with non-blocking corner notifications.
- *
- * Usage:
- *   import { toast } from "@/lib/toast";
- *   toast.success("Host saved");
- *   toast.error("Failed to connect", { description: "ECONNREFUSED on port 22" });
- *   toast.info("Vault locked");
- */
-
 import { create } from "zustand";
 
 export type ToastKind = "success" | "error" | "info" | "warning";

@@ -1,11 +1,3 @@
-/**
- * Skiff API server entry point.
- *
- * Boots the Fastify app, binds to the configured host:port, and wires
- * up graceful shutdown on SIGINT/SIGTERM so SQLite gets a chance to
- * close cleanly (important — the WAL file matters).
- */
-
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 

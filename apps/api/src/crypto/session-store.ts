@@ -1,11 +1,3 @@
-/**
- * In-memory session key store.
- *
- * Holds the derived vault key per session. This NEVER touches disk.
- * When the idle timer fires, the key is zeroed and the session is
- * considered locked.
- */
-
 import { randomBytes } from "node:crypto";
 
 export interface SessionEntry {
@@ -80,6 +72,14 @@ export class SessionStore {
    */
   setIdleTimeout(minutes: number): void {
     this.idleTimeoutMs = minutes * 60 * 1000;
+    // Apply the new (possibly shorter) timeout right away rather than
+    // waiting for the next sweep, so a tightened setting takes effect now.
+    const now = Date.now();
+    for (const [id, entry] of this.sessions) {
+      if (now - entry.lastSeenAt > this.idleTimeoutMs) {
+        this.destroy(id);
+      }
+    }
   }
 
   get size(): number {

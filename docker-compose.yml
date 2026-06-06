@@ -2,12 +2,29 @@
 # Skiff — one-command self-hosted deploy
 #
 # Usage:
-#   docker compose up -d
+#   mkdir -p data
+#   cp .env.example .env
+#   # edit .env and set SKIFF_COOKIE_SECRET
+#   docker compose up -d --build
 #
-# Then visit http://localhost:8080. Your encrypted vault lives in the
-# ./data volume — back it up regularly.
+# Then visit http://localhost:8080 (or your reverse proxy).
 #
-# Before first run, copy .env.example to .env and set SKIFF_COOKIE_SECRET.
+# PORT BINDING SECURITY:
+#   By default Skiff binds to 127.0.0.1 only. This means it is
+#   NOT reachable from other machines on the network, which is the
+#   safe default — especially important before the vault is initialized,
+#   since /api/vault/setup is unauthenticated (first caller sets the
+#   master password).
+#
+#   To expose on a LAN/public IP, set HOST_ADDR in your .env:
+#     HOST_ADDR=0.0.0.0   # all interfaces
+#     HOST_ADDR=192.168.1.x  # specific NIC
+#   Then put Skiff behind a reverse proxy (nginx/Caddy) with TLS.
+#
+# DATA DIRECTORY:
+#   Create ./data as your own user before first run. If Docker
+#   creates it, it will be owned by root and the container's
+#   unprivileged node user cannot write the database.
 # =====================================================
 
 services:
@@ -17,7 +34,10 @@ services:
     container_name: skiff
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # FIX: bind to 127.0.0.1 by default so the setup endpoint is not
+      # reachable from the network before the vault is initialized.
+      # Override by setting HOST_ADDR=0.0.0.0 in .env for reverse-proxy setups.
+      - "${HOST_ADDR:-127.0.0.1}:8080:8080"
     volumes:
       - ./data:/app/data
     environment:

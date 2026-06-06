@@ -35,6 +35,7 @@ export function TerminalRoute() {
   });
   const [reconnectKey, setReconnectKey] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
+  const [pendingFp, setPendingFp] = useState<{ fingerprint: string; hostname: string } | null>(null);
 
   const host = useQuery({
     queryKey: ["host", hostId],
@@ -92,6 +93,22 @@ export function TerminalRoute() {
     setReconnectKey((k) => k + 1);
   }, []);
 
+  const approveFingerprint = useCallback(() => {
+    const sock = socketRef.current;
+    if (sock?.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: "fingerprint_approve" }));
+    }
+    setPendingFp(null);
+  }, []);
+
+  const rejectFingerprint = useCallback(() => {
+    const sock = socketRef.current;
+    if (sock?.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: "fingerprint_reject" }));
+    }
+    setPendingFp(null);
+  }, []);
+
   useEffect(() => {
     if (!hostId || !termRef.current) return;
     let term: any, fitAddon: any;
@@ -141,7 +158,7 @@ export function TerminalRoute() {
         const sock = socketRef.current;
         if (!sock || sock.readyState !== WebSocket.OPEN) return;
         if (streamReadyRef.current) {
-          sock.send(JSON.stringify({ type: "input", data: btoa(unescape(encodeURIComponent(data))) }));
+          sock.send(JSON.stringify({ type: "input", data: btoa(String.fromCharCode(...new TextEncoder().encode(data))) }));
         } else {
           pendingInputRef.current.push(data);
         }
@@ -169,10 +186,17 @@ export function TerminalRoute() {
             if (msg.message === "Connected") {
               setConnState("connected");
               streamReadyRef.current = true;
+              // Make sure the server-side PTY has our dimensions before we
+              // replay anything the user typed while waiting.
+              try {
+                if (socket.readyState === WebSocket.OPEN) {
+                  socket.send(JSON.stringify({ type: "resize", rows: term.rows, cols: term.cols }));
+                }
+              } catch { /* ignore */ }
               // Flush any keystrokes buffered before the shell was ready
               while (pendingInputRef.current.length > 0) {
                 const data = pendingInputRef.current.shift()!;
-                socket.send(JSON.stringify({ type: "input", data: btoa(unescape(encodeURIComponent(data))) }));
+                socket.send(JSON.stringify({ type: "input", data: btoa(String.fromCharCode(...new TextEncoder().encode(data))) }));
               }
               // Start latency ping loop
               if (pingIntervalRef.current) window.clearInterval(pingIntervalRef.current);
@@ -200,9 +224,10 @@ export function TerminalRoute() {
             toast.error("Connection failed", { description: msg.message });
             break;
           case "fingerprint_new":
-            term.writeln(`\r\n\x1b[33m⚠ New host fingerprint: ${msg.fingerprint}\x1b[0m`);
-            term.writeln("\x1b[32m✓ Fingerprint saved\x1b[0m\r\n");
-            toast.info("Fingerprint saved", { description: msg.fingerprint });
+            term.writeln(`\r\n\x1b[33m⚠ Unrecognized host key for ${msg.hostname}\x1b[0m`);
+            term.writeln(`  ${msg.fingerprint}`);
+            term.writeln("  Verify this matches the server before continuing.\r\n");
+            setPendingFp({ fingerprint: msg.fingerprint || "", hostname: msg.hostname || hostId });
             break;
           case "fingerprint_mismatch":
             term.writeln(`\r\n\x1b[31m✗ FINGERPRINT MISMATCH — possible MITM attack\x1b[0m`);
@@ -400,6 +425,37 @@ export function TerminalRoute() {
                 </button>
                 <button type="button" className="btn btn--secondary" onClick={() => navigate({ to: "/" })}>
                   Back to hosts
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* New host fingerprint confirmation */}
+        {pendingFp && (
+          <div className="term__overlay">
+            <div className="term__overlay-card" style={{ maxWidth: 460 }}>
+              <div className="term__overlay-icon connecting">
+                <I.Info size={18} />
+              </div>
+              <div className="term__overlay-title">Verify host key</div>
+              <div className="term__overlay-msg" style={{ lineHeight: 1.5 }}>
+                First time connecting to <strong>{pendingFp.hostname}</strong>. Confirm the
+                fingerprint below matches the server before trusting it.
+              </div>
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-0)",
+                background: "var(--bg-2)", border: "1px solid var(--border)",
+                borderRadius: 6, padding: "8px 10px", margin: "12px 0", wordBreak: "break-all",
+              }}>
+                {pendingFp.fingerprint}
+              </div>
+              <div className="term__overlay-actions">
+                <button type="button" className="btn btn--primary" onClick={approveFingerprint}>
+                  Trust &amp; connect
+                </button>
+                <button type="button" className="btn btn--secondary" onClick={rejectFingerprint}>
+                  Cancel
                 </button>
               </div>
             </div>

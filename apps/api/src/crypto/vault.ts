@@ -1,12 +1,3 @@
-/**
- * Vault cryptography — uses Node.js built-in crypto only.
- * No libsodium dependency (avoids ESM issues on Windows).
- *
- * KDF:        argon2id (master password → 32-byte vault key)
- * Encryption: AES-256-GCM (authenticated encryption, tamper-proof)
- * Verifier:   HMAC-SHA256(vault_key, "skiff-verifier-v1")
- */
-
 import argon2 from "argon2";
 import {
   randomBytes,

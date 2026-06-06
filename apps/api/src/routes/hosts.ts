@@ -1,7 +1,3 @@
-/**
- * Host + Folder CRUD routes.
- */
-
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { ok, err } from "../lib/response.js";
@@ -40,8 +36,6 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
     const auth = requireUnlocked(deps.sessionStore);
 
-    // ─── Folders ─────────────────────────────────────────────
-
     app.get("/api/folders", { preHandler: auth }, async () => {
       const rows = app.skiffDb.raw
         .prepare("SELECT * FROM folders ORDER BY position ASC, name ASC")
@@ -78,14 +72,20 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
 
     app.delete("/api/folders/:id", { preHandler: auth }, async (req, reply) => {
       const { id } = req.params as { id: string };
-      const result = app.skiffDb.raw.prepare("DELETE FROM folders WHERE id = ?").run(id);
+      const db = app.skiffDb.raw;
+      const tx = db.transaction(() => {
+        // Explicitly detach hosts so they fall back to "All hosts" even if
+        // the FK cascade isn't active on this connection.
+        db.prepare("UPDATE hosts SET folder_id = NULL WHERE folder_id = ?").run(id);
+        db.prepare("UPDATE folders SET parent_id = NULL WHERE parent_id = ?").run(id);
+        return db.prepare("DELETE FROM folders WHERE id = ?").run(id);
+      });
+      const result = tx();
       if (result.changes === 0) {
         return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Folder not found"));
       }
       return ok({ deleted: true });
     });
-
-    // ─── Hosts ───────────────────────────────────────────────
 
     app.get("/api/hosts", { preHandler: auth }, async (req) => {
       const { folderId, search, starred } = req.query as {
@@ -150,33 +150,39 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       if (!existing) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Host not found"));
 
       const body = HostInput.parse(req.body);
-      let credentialId = existing.credential_id;
+      const db = app.skiffDb.raw;
 
-      if (body.credential) {
-        // Remove old credential if exists
-        if (credentialId) {
-          app.skiffDb.raw.prepare("DELETE FROM credentials WHERE id = ?").run(credentialId);
+      const tx = db.transaction(() => {
+        let credentialId = existing.credential_id;
+        if (body.credential) {
+          const newCredId = generateId("crd");
+          const plaintext = body.credential.passphrase
+            ? JSON.stringify({ value: body.credential.value, passphrase: body.credential.passphrase })
+            : body.credential.value;
+          const encrypted = encrypt(plaintext, req.vaultKey);
+          // Insert the new credential first, then remove the old one — so a
+          // failure never leaves the host pointing at a deleted credential.
+          db.prepare(
+            "INSERT INTO credentials (id, kind, nonce, encrypted_blob, created_at) VALUES (?, ?, ?, ?, ?)"
+          ).run(newCredId, body.credential.kind, encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
+          if (credentialId) {
+            db.prepare("DELETE FROM credentials WHERE id = ?").run(credentialId);
+          }
+          credentialId = newCredId;
         }
-        credentialId = generateId("crd");
-        const plaintext = body.credential.passphrase
-          ? JSON.stringify({ value: body.credential.value, passphrase: body.credential.passphrase })
-          : body.credential.value;
-        const encrypted = encrypt(plaintext, req.vaultKey);
-        app.skiffDb.raw.prepare(
-          "INSERT INTO credentials (id, kind, nonce, encrypted_blob, created_at) VALUES (?, ?, ?, ?, ?)"
-        ).run(credentialId, body.credential.kind, encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
-      }
 
-      app.skiffDb.raw.prepare(
-        `UPDATE hosts SET folder_id=?, label=?, hostname=?, port=?, username=?,
-         auth_method=?, credential_id=?, tags=?, starred=? WHERE id=?`
-      ).run(
-        body.folderId, body.label, body.hostname, body.port,
-        body.username, body.authMethod, credentialId,
-        JSON.stringify(body.tags), body.starred ? 1 : 0, id,
-      );
+        db.prepare(
+          `UPDATE hosts SET folder_id=?, label=?, hostname=?, port=?, username=?,
+           auth_method=?, credential_id=?, tags=?, starred=? WHERE id=?`
+        ).run(
+          body.folderId, body.label, body.hostname, body.port,
+          body.username, body.authMethod, credentialId,
+          JSON.stringify(body.tags), body.starred ? 1 : 0, id,
+        );
+      });
+      tx();
 
-      return ok(normalizeHost(app.skiffDb.raw.prepare("SELECT * FROM hosts WHERE id = ?").get(id)));
+      return ok(normalizeHost(db.prepare("SELECT * FROM hosts WHERE id = ?").get(id)));
     });
 
     app.delete("/api/hosts/:id", { preHandler: auth }, async (req, reply) => {

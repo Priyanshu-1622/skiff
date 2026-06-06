@@ -21,10 +21,10 @@ export function DashboardRoute() {
   const [folderToDelete, setFolderToDelete] = useState<{ id: string; name: string } | null>(null);
   const [hostToDelete, setHostToDelete] = useState<any | null>(null);
 
-  useEffect(() => { fetchStatus(); }, []);
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
   useEffect(() => {
     if (!loading && status && !status.unlocked) navigate({ to: "/unlock" });
-  }, [loading, status]);
+  }, [loading, status, navigate]);
 
   // Re-render every minute so timeAgo values stay fresh
   const [, setTick] = useState(0);
@@ -73,7 +73,7 @@ export function DashboardRoute() {
       toast.success("Host deleted");
     },
     onError: (error: any) => {
-      toast.error("Failed to delete host", { description: error?.message });
+      toast.error("Couldn't delete that host", { description: error?.message });
       setHostToDelete(null);
     },
   });
@@ -86,7 +86,7 @@ export function DashboardRoute() {
       toast.success("Folder created");
     },
     onError: (error: any) => {
-      toast.error("Failed to create folder", { description: error?.message });
+      toast.error("Couldn't create the folder", { description: error?.message });
     },
   });
 
@@ -102,7 +102,7 @@ export function DashboardRoute() {
       toast.success("Folder deleted");
     },
     onError: (error: any) => {
-      toast.error("Failed to delete folder", { description: error?.message });
+      toast.error("Couldn't delete the folder", { description: error?.message });
       setFolderToDelete(null);
     },
   });
@@ -120,7 +120,7 @@ export function DashboardRoute() {
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hosts"] }),
     onError: (error: any) => {
-      toast.error("Failed to update host", { description: error?.message });
+      toast.error("That didn't save", { description: error?.message });
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
     },
   });
@@ -155,7 +155,7 @@ export function DashboardRoute() {
 
   return (
     <AppShell
-      topbar={{ searchValue: search, onSearchChange: setSearch, username: "admin" }}
+      topbar={{ searchValue: search, onSearchChange: setSearch, username: "Vault" }}
       sidebar={{
         totalHosts: (hosts.data ?? []).length,
         favoritesCount: (hosts.data ?? []).filter((h: any) => h.starred).length,

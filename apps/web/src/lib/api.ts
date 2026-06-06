@@ -1,8 +1,3 @@
-/**
- * Typed fetch wrapper. Every endpoint returns an ApiResult<T> envelope.
- * Globally handles 401 VAULT_LOCKED by redirecting to /unlock.
- */
-
 import type { ApiResult, ApiErrorCode } from "@skiff/shared";
 
 export class ApiError extends Error {

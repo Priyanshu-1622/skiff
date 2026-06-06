@@ -1,15 +1,17 @@
 # =====================================================
 # Skiff — multi-stage Dockerfile
 #
-# Stage 1: install pnpm, fetch all workspace deps
-# Stage 2: build the web frontend to static files
-# Stage 3: build the api typescript to plain js
-# Stage 4: tiny runtime image with just node + the built artifacts
+# Stage 1: base  — Node 20 + pnpm + build tools
+# Stage 2: deps  — install all workspace deps
+# Stage 3: build-shared — compile @skiff/shared to dist/
+# Stage 4: build-web    — compile React frontend
+# Stage 5: build-api    — compile Fastify API
+# Stage 6: runtime      — minimal image, no build tools
 #
-# Final image ships:
-#   /app/apps/api/dist     — compiled API
-#   /app/apps/web/dist     — built frontend (served as static by api on Day 13+)
-#   /app/data              — SQLite database lives here (volume mount this)
+# FIX: @skiff/shared was previously copied as raw .ts source into
+# the runtime image. Plain `node` can't load .ts files, causing:
+#   ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"
+# We now compile shared to JS first and copy only dist/.
 # =====================================================
 
 # ─── 1. base ────────────────────────────────────────────────
@@ -25,27 +27,32 @@ WORKDIR /app
 
 # ─── 2. deps ────────────────────────────────────────────────
 FROM base AS deps
-COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
-RUN pnpm install --frozen-lockfile=false
+RUN pnpm install --frozen-lockfile
 
-# ─── 3. build web ───────────────────────────────────────────
-FROM deps AS build-web
+# ─── 3. build shared ────────────────────────────────────────
+# Compile @skiff/shared to plain JS so the runtime stage has
+# no .ts files to trip over. Both build-web and build-api
+# inherit from this stage so they see the compiled shared dist.
+FROM deps AS build-shared
 COPY tsconfig.base.json ./
-COPY apps/web ./apps/web
 COPY packages/shared ./packages/shared
+RUN pnpm --filter @skiff/shared build
+
+# ─── 4. build web ───────────────────────────────────────────
+FROM build-shared AS build-web
+COPY apps/web ./apps/web
 RUN pnpm --filter @skiff/web build
 
-# ─── 4. build api ───────────────────────────────────────────
-FROM deps AS build-api
-COPY tsconfig.base.json ./
+# ─── 5. build api ───────────────────────────────────────────
+FROM build-shared AS build-api
 COPY apps/api ./apps/api
-COPY packages/shared ./packages/shared
 RUN pnpm --filter @skiff/api build
 
-# ─── 5. runtime ─────────────────────────────────────────────
+# ─── 6. runtime ─────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     SKIFF_DATA_DIR=/app/data \
@@ -53,27 +60,27 @@ ENV NODE_ENV=production \
     SKIFF_PORT=8080
 WORKDIR /app
 
-# Better-sqlite3 needs a few runtime libraries
+# better-sqlite3 needs libstdc++6 at runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
-# pnpm — needed only because we'll use it to install prod deps below
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-# Copy package manifests and install prod-only deps
-COPY pnpm-workspace.yaml package.json ./
+# Install prod-only deps
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
-RUN pnpm install --frozen-lockfile=false --prod --filter @skiff/api...
+RUN pnpm install --frozen-lockfile --prod --filter @skiff/api...
 
-# Copy built artifacts
+# Copy compiled artifacts
 COPY --from=build-api /app/apps/api/dist ./apps/api/dist
 COPY --from=build-api /app/apps/api/src/db/schema.sql ./apps/api/dist/db/schema.sql
 COPY --from=build-web /app/apps/web/dist ./apps/web/dist
-COPY --from=build-api /app/packages/shared ./packages/shared
+# Copy compiled shared JS (not raw .ts source)
+COPY --from=build-shared /app/packages/shared/dist ./packages/shared/dist
 
-# Data volume
+# Data volume — pre-create with correct ownership so non-root user can write
 RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node
 

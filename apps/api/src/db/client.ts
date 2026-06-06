@@ -1,13 +1,3 @@
-/**
- * SQLite database client.
- *
- * Single-file SQLite database at `${SKIFF_DATA_DIR}/skiff.sqlite`.
- * Schema is applied on every boot via CREATE IF NOT EXISTS — that's
- * idempotent so it's safe to run on startup. When we later need real
- * migrations (Day 12+), we'll add a `migrations/` folder and version
- * the schema in `vault_meta.schema_version`.
- */
-
 import Database from "better-sqlite3";
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";

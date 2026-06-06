@@ -45,3 +45,7 @@ coverage/
 # Misc
 .cache/
 *.orig
+marketing/
+run_daily_report.py
+run_push_update.py
+requirements.txt

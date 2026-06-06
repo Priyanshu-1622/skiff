@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS vault_meta (
   -- argon2id parameters used at setup time. We store these so we can
   -- re-derive the vault key on every unlock with the same params, even
   -- if we change defaults for new vaults later.
+  -- NOTE: stored for future multi-algorithm support but not yet read for dispatch.
+  -- All code currently hardcodes argon2id. Read this column before adding new algorithms.
   kdf_algorithm TEXT NOT NULL DEFAULT 'argon2id',
   kdf_salt BLOB NOT NULL,
   kdf_iterations INTEGER NOT NULL,
@@ -107,10 +109,10 @@ CREATE TABLE IF NOT EXISTS known_hosts (
 );
 
 -- ─── sessions ──────────────────────────────────────────────────────
--- HTTP session cookies for the unlocked vault. We deliberately do NOT
--- store the derived vault key here — that lives in process memory
--- only, keyed by the session id. If the server restarts, every
--- session must re-unlock.
+-- NOTE: This table is NOT used by the current session implementation.
+-- Sessions are managed entirely in-memory by SessionStore (crypto/session-store.ts).
+-- The vault key never touches disk. This table is retained for a future
+-- persistent-session feature. Do not read/write it in application code.
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
