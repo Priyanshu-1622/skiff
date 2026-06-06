@@ -6,7 +6,7 @@
   "main": "./dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json && mkdir -p dist/db && cp src/db/schema.sql dist/db/schema.sql",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql')\"",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test src/**/*.test.ts"
