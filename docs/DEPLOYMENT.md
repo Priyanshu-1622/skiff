@@ -15,7 +15,7 @@ This guide covers production deployment of Skiff.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/skiff.git
+git clone https://github.com/Priyanshu-1622/skiff.git
 cd skiff
 
 # Create environment file
@@ -163,7 +163,7 @@ sudo apt install -y python3 make g++
 ### 2. Build Skiff
 
 ```bash
-git clone https://github.com/yourusername/skiff.git
+git clone https://github.com/Priyanshu-1622/skiff.git
 cd skiff
 
 # Install deps
@@ -223,6 +223,41 @@ sudo systemctl daemon-reload
 sudo systemctl enable skiff
 sudo systemctl start skiff
 ```
+
+## Running Skiff for a team
+
+Skiff can run as a shared vault for a whole team. The important thing to understand: **Skiff is server software, not a peer-to-peer or cloud-synced app.** For a team, *one* Skiff instance runs on *one* server that everyone's browser connects to. There's no cloud because you are the host, and there's no data sync between members because the data lives in one place they all reach.
+
+### How it works
+
+- You run a single Skiff instance on a server the team can reach — a company VPS, an office machine, a homelab box. The same Docker Compose setup above.
+- You put it behind a domain with HTTPS (see the reverse-proxy section). HTTPS is **required** for a team deployment — session cookies are marked `Secure` in production, and you don't want credentials crossing the network in the clear.
+- Each team member opens the URL (e.g. `https://skiff.yourcompany.com`) and signs in with their own username and password. Nothing to install.
+- When a member connects to a host, the SSH connection is made *from the Skiff server* to the target, and the terminal streams to their browser. So the **Skiff server** needs network access to your target hosts — not each individual member's laptop.
+
+### Setting up a fresh team instance
+
+1. Deploy Skiff as above, behind HTTPS.
+2. On first load, choose **Team** mode at the setup screen.
+3. Create the first admin account (username + password).
+4. From the **Admin** panel, add members. Each gets a username and a temporary password you share with them securely; they can change it after first login.
+5. Members sign in and immediately see the shared hosts. Admins can review the audit log of who connected to what.
+
+### Migrating an existing personal vault to a team server
+
+If you've been using Skiff solo and want to move that data onto a shared team server:
+
+1. On your existing instance: **Settings → Backup → Download backup**. This is an encrypted JSON of your whole vault.
+2. Stand up a fresh Skiff instance on the team server (don't initialize it).
+3. On the new instance's setup screen, choose **Restore from a backup file** and upload the JSON. Your hosts and credentials are imported; unlock with your **original** master password.
+4. Now go to **Settings → Team** and upgrade to team mode, creating your admin account. Your existing hosts carry over untouched (your vault key simply becomes the shared team key — nothing is re-encrypted).
+5. Add the rest of your team from the Admin panel.
+
+The restore step only works on a fresh, uninitialized instance — restoring over an existing vault is blocked, because mixing credentials encrypted under different keys would corrupt the vault.
+
+### Forgotten passwords
+
+There's no cloud, so there's no automated password reset. Instead, any admin can issue a member a new temporary password from the Admin panel — no data is lost, because credentials are encrypted with the shared key, not the member's personal password. Keep at least two admins so the team can always recover; if *every* admin loses their password, the vault is unrecoverable by design.
 
 ## Security Hardening
 

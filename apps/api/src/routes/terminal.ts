@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { Client as SSH2Client } from "ssh2";
 import type { SessionStore } from "../crypto/session-store.js";
 import { decrypt } from "../crypto/vault.js";
+import { writeAudit } from "../lib/audit.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
@@ -22,12 +23,13 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         return;
       }
 
-      const vaultKey = deps.sessionStore.get(sessionId);
-      if (!vaultKey) {
+      const entry = deps.sessionStore.getEntry(sessionId);
+      if (!entry) {
         socket.send(JSON.stringify({ type: "error", code: ApiErrorCode.VAULT_LOCKED }));
         socket.close(4001);
         return;
       }
+      const vaultKey = entry.vaultKey;
 
       const db = app.skiffDb.raw;
       const host = db.prepare("SELECT * FROM hosts WHERE id = ?").get(hostId) as any;
@@ -109,10 +111,22 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
             const timer = setTimeout(() => {
               if (settled) return;
               settled = true;
-              socket.send(JSON.stringify({ type: "error", message: "Fingerprint confirmation timed out" }));
+              if (socket.readyState === 1) {
+                try {
+                  socket.send(JSON.stringify({ type: "error", message: "Fingerprint confirmation timed out" }));
+                  socket.close(4005);
+                } catch { /* socket already gone */ }
+              }
               callback(false);
-              socket.close(4005);
             }, FINGERPRINT_TIMEOUT_MS);
+
+            // If the user closes the tab while we're waiting, stop waiting.
+            socket.on("close", () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              callback(false);
+            });
 
             // Listen for one-time approval/rejection from the browser
             const onApproval = (raw: Buffer | string) => {
@@ -171,6 +185,12 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         socket.send(JSON.stringify({ type: "status", message: "Connected" }));
         db.prepare("UPDATE hosts SET last_connected_at = ? WHERE id = ?")
           .run(new Date().toISOString(), hostId);
+        writeAudit(db, {
+          user: entry.user, action: "host.connect",
+          resourceType: "host", resourceId: hostId,
+          detail: { label: host.label, hostname: host.hostname, username: host.username },
+          ip: req.ip,
+        });
 
         ssh.shell({ term: "xterm-256color" }, (shellErr, stream) => {
           if (shellErr) {

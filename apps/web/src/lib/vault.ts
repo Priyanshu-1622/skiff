@@ -1,13 +1,14 @@
 import { create } from "zustand";
 import { apiGet, apiPost } from "./api";
-import type { VaultStatus } from "@skiff/shared";
+import type { VaultStatus, VaultMode } from "@skiff/shared";
 
 interface VaultState {
   status: VaultStatus | null;
   loading: boolean;
   fetchStatus: () => Promise<void>;
-  setup: (password: string) => Promise<boolean>;
+  setup: (password: string, opts?: { mode?: VaultMode; username?: string }) => Promise<{ ok: boolean; error?: string }>;
   unlock: (password: string) => Promise<{ ok: boolean; error?: string }>;
+  teamLogin: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   lock: () => Promise<void>;
 }
 
@@ -24,13 +25,17 @@ export const useVault = create<VaultState>((set, get) => ({
     }
   },
 
-  setup: async (password: string) => {
+  setup: async (password: string, opts) => {
     try {
-      await apiPost("/api/vault/setup", { password });
+      await apiPost("/api/vault/setup", {
+        password,
+        mode: opts?.mode ?? "personal",
+        username: opts?.username,
+      });
       await get().fetchStatus();
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e.message || "Setup failed" };
     }
   },
 
@@ -41,6 +46,16 @@ export const useVault = create<VaultState>((set, get) => ({
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: e.message || "Incorrect password" };
+    }
+  },
+
+  teamLogin: async (username: string, password: string) => {
+    try {
+      await apiPost("/api/team/login", { username, password });
+      await get().fetchStatus();
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e.message || "Invalid credentials" };
     }
   },
 

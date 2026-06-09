@@ -50,6 +50,29 @@ export const Skiff = (p: IconProps) => (
   </Icon>
 );
 
+// ── team-mode icons ──
+export const User = (p: IconProps) => (
+  <Icon {...p}><circle cx="8" cy="5.5" r="2.5" /><path d="M3.5 13 a4.5 4.5 0 0 1 9 0" /></Icon>
+);
+export const Users = (p: IconProps) => (
+  <Icon {...p}><circle cx="6" cy="5.5" r="2.2" /><path d="M2 12.5 a4 4 0 0 1 8 0" /><path d="M10.5 3.6 a2.2 2.2 0 0 1 0 3.8" /><path d="M11 9.2 a4 4 0 0 1 3 3.3" /></Icon>
+);
+export const Shield = (p: IconProps) => (
+  <Icon {...p}><path d="M8 1.8 L13 3.4 V8 c0 3.2 -2.2 5 -5 6.2 C5.8 13 3.6 11.2 3.6 8 V3.4 Z" /><path d="M5.9 8 L7.4 9.5 L10.3 6.3" /></Icon>
+);
+export const Clock = (p: IconProps) => (
+  <Icon {...p}><circle cx="8" cy="8" r="6" /><path d="M8 4.6 V8 L10.3 9.4" /></Icon>
+);
+export const Copy = (p: IconProps) => (
+  <Icon {...p}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M3.5 10.5 a1 1 0 0 1 -1 -1 V3.5 a1 1 0 0 1 1 -1 H9 a1 1 0 0 1 1 1" /></Icon>
+);
+export const Power = (p: IconProps) => (
+  <Icon {...p}><path d="M8 2 V7.5" /><path d="M4.6 4.6 a4.8 4.8 0 1 0 6.8 0" /></Icon>
+);
+export const LogIn = (p: IconProps) => (
+  <Icon {...p}><path d="M9 2.5 H12.5 a1 1 0 0 1 1 1 V12.5 a1 1 0 0 1 -1 1 H9" /><path d="M2.5 8 H10 M7.5 5 L10.5 8 L7.5 11" /></Icon>
+);
+
 export const Server = (p: IconProps) => (
   <Icon {...p}>
     <rect x="2.5" y="3" width="11" height="4" rx="1" />

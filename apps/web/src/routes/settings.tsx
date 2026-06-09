@@ -7,9 +7,9 @@ import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
 
-type Section = "security" | "import" | "backup" | "about";
+type Section = "security" | "import" | "backup" | "about" | "team";
 
-const SECTIONS: Section[] = ["security", "import", "backup", "about"];
+const SECTIONS: Section[] = ["security", "import", "backup", "about", "team"];
 
 function readSectionFromHash(): Section {
   if (typeof window === "undefined") return "security";
@@ -49,6 +49,10 @@ export function SettingsRoute() {
     { id: "import"   as Section, label: "Import",   icon: <I.ArrowRight size={14} /> },
     { id: "backup"   as Section, label: "Backup",   icon: <I.Server size={14} /> },
     { id: "about"    as Section, label: "About",    icon: <I.Info size={14} /> },
+    // Only offer the team upgrade from a personal vault.
+    ...(status?.mode === "personal"
+      ? [{ id: "team" as Section, label: "Team", icon: <I.Users size={14} /> }]
+      : []),
   ];
 
   return (
@@ -84,7 +88,7 @@ export function SettingsRoute() {
           </button>
         ))}
         <div className="foot">
-          <span>v0.1.0</span>
+          <span>v0.2.0</span>
           <span>AGPL-3.0</span>
         </div>
       </nav>
@@ -97,6 +101,7 @@ export function SettingsRoute() {
             {section === "import"   && <ImportSection />}
             {section === "backup"   && <BackupSection />}
             {section === "about"    && <AboutSection />}
+            {section === "team"     && <TeamUpgradeSection />}
           </div>
         </div>
       </div>
@@ -317,7 +322,7 @@ function AboutSection() {
       <div className="s-section">
         <div className="s-section__body" style={{ paddingTop: 14 }}>
           {[
-            ["Version", "0.1.0"],
+            ["Version", "0.2.0"],
             ["License", "AGPL-3.0"],
             ["Stack", "React + Fastify + SQLite"],
             ["Encryption", "AES-256-GCM + argon2id"],
@@ -327,6 +332,84 @@ function AboutSection() {
               <div className="s-row__control" style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-1)" }}>{v}</div>
             </div>
           ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TeamUpgradeSection() {
+  const navigate = useNavigate();
+  const { fetchStatus } = useVault();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [adminUsername, setAdminUsername] = useState("");
+  const [confirm, setConfirm] = useState(false);
+
+  const upgrade = useMutation({
+    mutationFn: () => apiPost("/api/settings/upgrade-team", { currentPassword, adminUsername }),
+    onSuccess: async () => {
+      toast.success("Upgraded to team mode");
+      await fetchStatus();
+      navigate({ to: "/admin" });
+    },
+    onError: (e: any) => toast.error("Upgrade failed", { description: e.message }),
+  });
+
+  return (
+    <>
+      <div className="settings-pane__head">
+        <h1 className="settings-pane__h1">Upgrade to Team</h1>
+        <p className="settings-pane__sub">Convert this personal vault into a multi-user team vault. Your hosts and credentials are kept exactly as they are.</p>
+      </div>
+
+      <div className="s-section">
+        <div className="s-section__head">
+          <div className="s-section__title">What happens</div>
+        </div>
+        <div className="s-section__body" style={{ paddingTop: 12, fontSize: 13, color: "var(--fg-1)", lineHeight: 1.6 }}>
+          Your current account becomes the first admin. You'll sign in with a username and your existing password from now on. You can then invite team members, who each get their own login, and review an audit log of all activity. This can't be undone, so export a backup first if you want one.
+        </div>
+      </div>
+
+      <div className="s-section" style={{ marginTop: 14 }}>
+        <div className="s-section__head">
+          <div className="s-section__title">Create the first admin</div>
+        </div>
+        <div className="s-section__body" style={{ paddingTop: 12 }}>
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--fg-2)", marginBottom: 6 }}>Admin username</label>
+            <input
+              className="mono"
+              value={adminUsername}
+              onChange={(e) => setAdminUsername(e.target.value)}
+              placeholder="admin"
+              spellCheck={false}
+              style={{ width: "100%", maxWidth: 280, background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "8px 10px", color: "var(--fg-0)", fontFamily: "var(--font-mono)", fontSize: 13 }}
+            />
+          </div>
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--fg-2)", marginBottom: 6 }}>Confirm with your current master password</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Current password"
+              style={{ width: "100%", maxWidth: 280, background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "8px 10px", color: "var(--fg-0)", fontSize: 13 }}
+            />
+          </div>
+
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "var(--fg-1)", cursor: "pointer", marginBottom: 14, maxWidth: 420 }}>
+            <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>I understand this converts the vault to team mode and can't be undone.</span>
+          </label>
+
+          <button
+            className="btn btn--primary"
+            disabled={!adminUsername || !currentPassword || !confirm || upgrade.isPending}
+            onClick={() => upgrade.mutate()}
+          >
+            {upgrade.isPending ? "Upgrading…" : "Upgrade to team mode"}
+          </button>
         </div>
       </div>
     </>

@@ -1,6 +1,6 @@
 # Skiff
 
-A self-hosted SSH connection manager. Store hosts, organize them in folders, connect through an in-browser terminal. Credentials are encrypted at rest.
+A self-hosted SSH connection manager. Store hosts, organize them in folders, connect through an in-browser terminal. Credentials are encrypted at rest. Use it solo, or in team mode where several people share one encrypted vault with their own logins and a full audit log.
 
 Open-source. AGPL-3.0. Single binary + SQLite — no cloud, no telemetry.
 
@@ -42,9 +42,9 @@ So one weekend I figured how hard could it really be: encrypted SQLite + ssh2 + 
 | Cloud sync | optional / never | required for sync | local only | local only |
 | Telemetry | none | yes | unknown | unknown |
 | Docker deploy | one command | n/a | n/a | n/a |
-| Team features | no (yet) | yes (paid) | yes | yes |
+| Team features | yes (self-hosted) | yes (paid) | yes | yes |
 
-Skiff is for one person who wants to own their SSH inventory. If you need shared team access, audit logs, and a slick mobile app, the paid tools are still ahead — Termius in particular is genuinely good if you're okay with the cloud sync. Skiff is for the case where you specifically don't want that.
+Skiff is for people who want to own their SSH inventory. Run it solo, or in team mode where a group shares one encrypted vault — each member with their own login and every action recorded in an audit log, all on your own server. If you need a polished mobile app or enterprise SSO today, Termius and Teleport are still ahead. Skiff is for the case where you specifically don't want your servers' credentials living in someone else's cloud.
 
 ## Features
 
@@ -55,7 +55,23 @@ Skiff is for one person who wants to own their SSH inventory. If you need shared
 - Dark / light themes. Persists in localStorage.
 - SSH host fingerprint pinning. First connect saves it; mismatches block the connection.
 - Auto-lock on idle. Configurable, defaults to 15 minutes.
+- **Team mode (optional).** Run the vault for a group instead of one person. Multiple user accounts, each with their own login, sharing one encrypted vault. Admins add members, reset passwords, and disable accounts; every privileged action — logins, connections, host changes — is recorded in an audit log. A personal vault can be upgraded to a team vault in place without touching your existing hosts. Fully self-hosted; no cloud, no external identity provider.
 - Single docker compose command to deploy. SQLite, so no separate database to run.
+
+## Team mode
+
+By default Skiff is a personal vault: one master password, one user. If you're running it for a group, you can use **team mode** instead.
+
+In team mode there's still exactly one encrypted vault, but multiple people have their own accounts to unlock it:
+
+- **Per-user logins.** Each member signs in with a username and their own password. Behind the scenes the vault has a single shared encryption key; each user keeps their own copy of it, sealed with a key derived from their password. Any member can decrypt the shared hosts, but every session is tied to a specific user.
+- **Admins.** Admins can add members, reset a member's password, and disable accounts. The first admin is created at setup (or during the personal → team upgrade). Skiff won't let you disable the last remaining admin.
+- **Audit log.** Logins, failed logins, host connections (who connected to which host, as which SSH user), and host/user changes are all recorded. Admins review it from the Admin panel.
+- **Forgot-password recovery.** Because there's no cloud, a forgotten password can't be auto-recovered — but an admin can issue a new temporary password. No data is lost, because credentials are encrypted with the shared vault key, not any individual's password.
+
+Choose the mode at first-run setup, or upgrade an existing personal vault from **Settings → Team**. The upgrade keeps all your hosts and credentials exactly as they are — your existing vault key simply becomes the shared key, so nothing is re-encrypted. The upgrade is one-way.
+
+What team mode is **not**: it's not full role-based access control. Every member can see and connect to every host in the shared vault — there are no per-host or per-folder permissions, and no read-only role. If you need granular RBAC for a larger organization, that's out of scope for the open-source project.
 
 ## Quick start
 
@@ -96,16 +112,16 @@ skiff/
 │   ├── web/                    React frontend (Vite)
 │   │   ├── src/
 │   │   │   ├── components/     Shell (Topbar, Sidebar, AppShell), icons
-│   │   │   ├── routes/         unlock, dashboard, terminal, settings
+│   │   │   ├── routes/         unlock, setup, dashboard, terminal, settings, team-login, team-admin
 │   │   │   ├── lib/            API client, vault store, theme, ws client
 │   │   │   └── styles/         Design tokens + per-screen CSS
 │   │   └── vite.config.ts
 │   └── api/                    Fastify backend
 │       ├── src/
-│       │   ├── crypto/         AES-256-GCM + argon2id, session store
-│       │   ├── routes/         auth, hosts, folders, terminal, import, settings
-│       │   ├── db/             SQLite schema + connection
-│       │   └── lib/            auth middleware, response helpers, id gen
+│       │   ├── crypto/         AES-256-GCM + argon2id, session store, team-vault (shared-key sealing)
+│       │   ├── routes/         auth, hosts, folders, terminal, import, settings, team
+│       │   ├── db/             SQLite schema + connection + migrations
+│       │   └── lib/            auth middleware, audit log, response helpers, id gen
 │       └── server.ts
 ├── packages/
 │   └── shared/                 Types shared between web and api
@@ -123,7 +139,7 @@ These are real things I've noticed using Skiff. Some are easy fixes I haven't go
 
 - **Import doesn't handle `Include` directives.** If your `~/.ssh/config` does `Include ~/.ssh/config.d/*`, those hosts get skipped silently. I'll fix it when I personally need it — right now my config is one file.
 - **No folder reordering.** You can create folders and delete them, but you can't drag to reorder or nest existing ones. Plan the hierarchy before you create them, or be prepared to delete and re-create.
-- **No "restore from backup" UI.** Settings → Backup downloads an encrypted JSON. To restore you stop the server, replace `data/skiff.sqlite` manually, restart. There's no in-app flow yet.
+- **Restore is fresh-instance only.** Settings - Backup downloads an encrypted JSON, and a fresh instance can restore it from the setup screen ("Restore from a backup file"). You can't restore *over* an existing vault though — you'd have to start from a clean `data/` directory. Good enough for moving between machines; not an in-place "undo".
 - **Terminal resize is occasionally laggy.** xterm.js sends the new dimensions on resize, but during the resize gesture the output can wrap weirdly for a few frames. Stops looking broken once you let go.
 - **The `.sqlite-shm` and `.sqlite-wal` files.** SQLite in WAL mode creates two sidecar files next to the main DB. They're normal — do **not** delete them while Skiff is running. You'll corrupt the database. Ask me how I know.
 - **First-time docker build is slow.** Native modules (better-sqlite3, argon2) compile from source the first time, which can take 3-5 minutes on a small VPS. After that it's cached.
@@ -132,26 +148,25 @@ These are real things I've noticed using Skiff. Some are easy fixes I haven't go
 
 If you need any of these, Skiff isn't the right tool yet:
 
-- Multi-user. It's single-vault, single-user. No teams, no RBAC.
+- Role-based access control. Team mode shares one vault — every member can see and connect to every host. No per-host permissions, no read-only role.
 - SFTP / file transfers. SSH sessions only.
 - Bastion / jump host chains. Direct connections only.
-- Recording sessions or audit logs.
 - Mobile-optimized terminal. The dashboard works on phones but the terminal really wants a keyboard.
-- LDAP / SAML / SSO. Just the master password.
+- LDAP / SAML / SSO. Team mode uses Skiff's own user accounts, not an external identity provider.
 
-Most of these are on the roadmap. Some might never be — if you need a polished team-grade tool today, Termius or Teleport will serve you better.
+Most of these are on the roadmap. Some might never be — if you need a polished enterprise-grade tool today, Termius or Teleport will serve you better.
 
 ## Stack
 
 | | |
 |---|---|
 | Frontend | React 18, TypeScript, Vite, TanStack Router, TanStack Query, Zustand |
-| Backend  | Node 20, Fastify, ssh2, better-sqlite3 (WAL mode) |
+| Backend  | Node 20, Fastify, ssh2, better-sqlite3 (WAL mode), Zod validation |
 | Crypto   | Node `crypto` (AES-256-GCM), argon2 |
 | Terminal | xterm.js + FitAddon + WebLinksAddon |
 | Styling  | Plain CSS with design tokens — no Tailwind, no CSS-in-JS |
 
-Picked `better-sqlite3` over the async sqlite drivers because the synchronous API makes transactions and prepared statements way less fiddly — and SQLite is fast enough that the "blocking" concern doesn't actually matter for a single-user app.
+Picked `better-sqlite3` over the async sqlite drivers because the synchronous API makes transactions and prepared statements way less fiddly — and SQLite is fast enough that the "blocking" concern doesn't actually matter at the scale a self-hosted SSH manager runs at, even with a team sharing it.
 
 ## Security model — the short version
 
@@ -162,7 +177,9 @@ On unlock, we derive the key from your input, compare its HMAC to the stored ver
 What's encrypted: SSH passwords, private keys, passphrases.
 What's not: labels, hostnames, ports, usernames, folder names. These aren't secrets — they're metadata.
 
-If you forget your master password your credentials are gone. There's no recovery and there can't be one — that's the whole point.
+If you forget your master password your credentials are gone. There's no recovery and there can't be one — that's the whole point. (In team mode, an admin can reset *another* member's password, because the shared key is recoverable from any admin's session — but if every admin loses their password, the vault is unrecoverable.)
+
+**Team mode, briefly:** one random shared key encrypts every credential. Each user stores their own copy of that shared key, sealed with a key derived from their password (argon2id). Logging in unseals the shared key into memory for that session. Adding a member seals the shared key to their password; resetting a member re-seals it to a new one. The shared key never touches disk unencrypted. Full details in SECURITY.md.
 
 Full version: [SECURITY.md](./SECURITY.md).
 

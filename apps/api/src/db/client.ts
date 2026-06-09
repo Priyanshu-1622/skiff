@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export interface DbConfig {
   /** Absolute path to the data directory. Created if it doesn't exist. */
@@ -47,8 +47,30 @@ export function openDatabase(config: DbConfig): SkiffDb {
   const schema = readFileSync(schemaPath, "utf-8");
   db.exec(schema);
 
+  // Additive column migrations. ALTER TABLE ADD COLUMN isn't idempotent,
+  // so we check the existing columns first. Safe to run on every boot.
+  runColumnMigrations(db);
+
   return {
     raw: db,
     close: () => db.close(),
   };
+}
+
+/**
+ * Add columns that can't live in schema.sql because ADD COLUMN errors if
+ * the column already exists. Each migration checks before applying.
+ */
+function runColumnMigrations(db: Database.Database): void {
+  const hasColumn = (table: string, column: string): boolean => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === column);
+  };
+
+  // v2: vault mode — 'personal' (default, unchanged) or 'team'
+  if (!hasColumn("vault_meta", "mode")) {
+    db.exec(
+      "ALTER TABLE vault_meta ADD COLUMN mode TEXT NOT NULL DEFAULT 'personal'"
+    );
+  }
 }

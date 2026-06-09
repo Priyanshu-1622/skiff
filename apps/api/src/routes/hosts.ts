@@ -5,6 +5,7 @@ import { generateId } from "../lib/id.js";
 import { encrypt, decrypt } from "../crypto/vault.js";
 import type { SessionStore } from "../crypto/session-store.js";
 import { requireUnlocked } from "../lib/auth-middleware.js";
+import { writeAudit } from "../lib/audit.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 const HostInput = z.object({
@@ -55,6 +56,10 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       ).run(id, body.parentId, body.name, maxPos.p, new Date().toISOString());
 
       const row = app.skiffDb.raw.prepare("SELECT * FROM folders WHERE id = ?").get(id);
+      writeAudit(app.skiffDb.raw, {
+        user: req.sessionUser, action: "folder.create",
+        resourceType: "folder", resourceId: id, detail: { name: body.name }, ip: req.ip,
+      });
       return ok(row);
     });
 
@@ -141,6 +146,11 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       );
 
       const row = app.skiffDb.raw.prepare("SELECT * FROM hosts WHERE id = ?").get(hostId);
+      writeAudit(app.skiffDb.raw, {
+        user: req.sessionUser, action: "host.create",
+        resourceType: "host", resourceId: hostId,
+        detail: { label: body.label, hostname: body.hostname }, ip: req.ip,
+      });
       return ok(normalizeHost(row));
     });
 
@@ -182,6 +192,11 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       });
       tx();
 
+      writeAudit(app.skiffDb.raw, {
+        user: req.sessionUser, action: "host.update",
+        resourceType: "host", resourceId: id,
+        detail: { label: body.label, hostname: body.hostname }, ip: req.ip,
+      });
       return ok(normalizeHost(db.prepare("SELECT * FROM hosts WHERE id = ?").get(id)));
     });
 
@@ -193,14 +208,24 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
         app.skiffDb.raw.prepare("DELETE FROM credentials WHERE id = ?").run(existing.credential_id);
       }
       app.skiffDb.raw.prepare("DELETE FROM hosts WHERE id = ?").run(id);
+      writeAudit(app.skiffDb.raw, {
+        user: req.sessionUser, action: "host.delete",
+        resourceType: "host", resourceId: id,
+        detail: { label: existing.label, hostname: existing.hostname }, ip: req.ip,
+      });
       return ok({ deleted: true });
     });
   };
 
 function normalizeHost(row: any) {
+  let tags: unknown = row.tags;
+  if (typeof row.tags === "string") {
+    try { tags = JSON.parse(row.tags); }
+    catch { tags = []; } // a malformed tags blob shouldn't break the whole list
+  }
   return {
     ...row,
-    tags: typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags,
+    tags,
     starred: !!row.starred,
   };
 }

@@ -25,10 +25,40 @@ export interface Folder {
 
 // ─── Vault ──────────────────────────────────────────────
 
+export type VaultMode = "personal" | "team";
+
+export interface TeamUser {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+}
+
 export interface VaultStatus {
   initialized: boolean;
   unlocked: boolean;
   idleTimeoutMinutes: number;
+  mode: VaultMode;
+  user: TeamUser | null;
+}
+
+export interface TeamMember {
+  id: string;
+  username: string;
+  displayName: string | null;
+  isAdmin: boolean;
+  disabled: boolean;
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  username: string | null;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  detail: Record<string, unknown> | null;
+  ip: string | null;
+  at: string;
 }
 
 // ─── API Envelope ───────────────────────────────────────
@@ -45,6 +75,9 @@ export const ApiErrorCode = {
   VAULT_LOCKED: "VAULT_LOCKED",
   VAULT_NOT_INITIALIZED: "VAULT_NOT_INITIALIZED",
   INVALID_PASSWORD: "INVALID_PASSWORD",
+  FORBIDDEN: "FORBIDDEN",
+  CONFLICT: "CONFLICT",
+  WRONG_MODE: "WRONG_MODE",
 } as const;
 
 export type ApiErrorCode = (typeof ApiErrorCode)[keyof typeof ApiErrorCode];

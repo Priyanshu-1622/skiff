@@ -17,6 +17,7 @@ import "@/styles/addhost.css";
 import "@xterm/xterm/css/xterm.css";
 import "@/styles/terminal.css";
 import "@/styles/settings.css";
+import "@/styles/team.css";
 import "@/styles/import.css";
 
 const queryClient = new QueryClient({

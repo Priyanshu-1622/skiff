@@ -1,9 +1,17 @@
 import { randomBytes } from "node:crypto";
 
+export interface SessionUser {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+}
+
 export interface SessionEntry {
   vaultKey: Buffer;
   createdAt: number;
   lastSeenAt: number;
+  /** Present in team mode; undefined in personal mode. */
+  user?: SessionUser;
 }
 
 export class SessionStore {
@@ -17,15 +25,18 @@ export class SessionStore {
   }
 
   /**
-   * Create a new session and store the vault key.
+   * Create a new session. In personal mode `user` is omitted; in team
+   * mode it carries the authenticated user's identity so routes can
+   * attribute actions in the audit log.
    */
-  create(vaultKey: Buffer): string {
+  create(vaultKey: Buffer, user?: SessionUser): string {
     const id = randomBytes(32).toString("hex");
     const now = Date.now();
     this.sessions.set(id, {
       vaultKey: Buffer.from(vaultKey),
       createdAt: now,
       lastSeenAt: now,
+      user,
     });
     return id;
   }
@@ -45,6 +56,30 @@ export class SessionStore {
 
     entry.lastSeenAt = Date.now();
     return entry.vaultKey;
+  }
+
+  /**
+   * Get the full session entry (key + user identity), updating lastSeenAt.
+   * Returns null if expired or not found.
+   */
+  getEntry(sessionId: string): SessionEntry | null {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) return null;
+    if (Date.now() - entry.lastSeenAt > this.idleTimeoutMs) {
+      this.destroy(sessionId);
+      return null;
+    }
+    entry.lastSeenAt = Date.now();
+    return entry;
+  }
+
+  /** Destroy every session belonging to a given user (e.g. on disable). */
+  destroyUserSessions(userId: string): void {
+    for (const [id, entry] of this.sessions) {
+      if (entry.user?.id === userId) {
+        this.destroy(id);
+      }
+    }
   }
 
   /**

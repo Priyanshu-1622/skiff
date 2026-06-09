@@ -23,7 +23,9 @@ export function DashboardRoute() {
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
   useEffect(() => {
-    if (!loading && status && !status.unlocked) navigate({ to: "/unlock" });
+    if (!loading && status && !status.unlocked) {
+      navigate({ to: status.mode === "team" ? "/login" : "/unlock" });
+    }
   }, [loading, status, navigate]);
 
   // Re-render every minute so timeAgo values stay fresh
@@ -169,6 +171,7 @@ export function DashboardRoute() {
         },
         vault: status ? { unlocked: status.unlocked, idleMinutes: status.idleTimeoutMinutes } : undefined,
         onVaultClick: lock,
+        isTeamAdmin: status?.mode === "team" && !!status.user?.isAdmin,
       }}
     >
       {/* Main toolbar */}

@@ -13,6 +13,7 @@ import { openDatabase, SCHEMA_VERSION, type SkiffDb } from "./db/client.js";
 import type { Config } from "./config.js";
 import { healthRoute } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
+import { teamRoutes } from "./routes/team.js";
 import { hostRoutes } from "./routes/hosts.js";
 import { terminalRoutes } from "./routes/terminal.js";
 import { importRoutes } from "./routes/import.js";
@@ -182,6 +183,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const startedAt = new Date();
   await app.register(healthRoute({ schemaVersion: SCHEMA_VERSION, startedAt }));
   await app.register(authRoutes({ sessionStore, config }));
+  await app.register(teamRoutes({ sessionStore, config }));
   await app.register(hostRoutes({ sessionStore }));
   await app.register(terminalRoutes({ sessionStore }));
   await app.register(importRoutes({ sessionStore }));

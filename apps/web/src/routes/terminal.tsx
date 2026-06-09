@@ -13,6 +13,20 @@ const MAX_FONT = 24;
 const DEFAULT_FONT = 14;
 const FONT_STORAGE_KEY = "skiff.terminal.fontSize";
 
+/**
+ * Base64-encode a UTF-8 string without `String.fromCharCode(...bytes)`,
+ * which throws RangeError (call stack exceeded) on large inputs such as
+ * a pasted block of text. Builds the binary string in a simple loop.
+ */
+function encodeInputToBase64(data: string): string {
+  const bytes = new TextEncoder().encode(data);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+}
+
 export function TerminalRoute() {
   const { hostId } = useParams({ strict: false }) as { hostId: string };
   const navigate = useNavigate();
@@ -158,7 +172,7 @@ export function TerminalRoute() {
         const sock = socketRef.current;
         if (!sock || sock.readyState !== WebSocket.OPEN) return;
         if (streamReadyRef.current) {
-          sock.send(JSON.stringify({ type: "input", data: btoa(String.fromCharCode(...new TextEncoder().encode(data))) }));
+          sock.send(JSON.stringify({ type: "input", data: encodeInputToBase64(data) }));
         } else {
           pendingInputRef.current.push(data);
         }
@@ -196,7 +210,7 @@ export function TerminalRoute() {
               // Flush any keystrokes buffered before the shell was ready
               while (pendingInputRef.current.length > 0) {
                 const data = pendingInputRef.current.shift()!;
-                socket.send(JSON.stringify({ type: "input", data: btoa(String.fromCharCode(...new TextEncoder().encode(data))) }));
+                socket.send(JSON.stringify({ type: "input", data: encodeInputToBase64(data) }));
               }
               // Start latency ping loop
               if (pingIntervalRef.current) window.clearInterval(pingIntervalRef.current);

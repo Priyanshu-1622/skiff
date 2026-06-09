@@ -133,3 +133,56 @@ CREATE TABLE IF NOT EXISTS unlock_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_unlock_attempts_at ON unlock_attempts(attempted_at DESC);
+
+-- ════════════════════════════════════════════════════════════════════
+-- Team mode tables
+--
+-- Populated only when vault_meta.mode = 'team'. Personal mode ignores
+-- them. Crypto: one random shared_vault_key encrypts every credential
+-- (same as personal); each user stores their own copy of that key
+-- sealed to a key derived from their password. Any member can decrypt,
+-- but each logs in separately so actions are attributable.
+-- ════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  display_name TEXT,
+  kdf_salt BLOB NOT NULL,
+  kdf_iterations INTEGER NOT NULL,
+  kdf_memory_kib INTEGER NOT NULL,
+  kdf_parallelism INTEGER NOT NULL,
+  verifier BLOB NOT NULL,
+  shared_key_blob BLOB,
+  shared_key_nonce BLOB,
+  is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
+  disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  attempted_at TEXT NOT NULL,
+  succeeded INTEGER NOT NULL CHECK (succeeded IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_attempts ON login_attempts(username, attempted_at DESC);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT,
+  username TEXT,
+  action TEXT NOT NULL,
+  resource_type TEXT,
+  resource_id TEXT,
+  detail TEXT,
+  ip TEXT,
+  at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);

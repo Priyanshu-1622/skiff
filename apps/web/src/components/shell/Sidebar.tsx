@@ -19,6 +19,7 @@ export interface SidebarProps {
   onDeleteFolder?: (id: string) => void;
   vault?: { unlocked: boolean; idleMinutes: number };
   onVaultClick?: () => void;
+  isTeamAdmin?: boolean;
 }
 
 export function Sidebar({
@@ -31,6 +32,7 @@ export function Sidebar({
   onDeleteFolder,
   vault,
   onVaultClick,
+  isTeamAdmin = false,
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -70,6 +72,18 @@ export function Sidebar({
           <span className="icon"><I.Settings size={14} /></span>
           Settings
         </button>
+
+        {isTeamAdmin && (
+          <button
+            type="button"
+            className="nav-item"
+            aria-current={location.pathname === "/admin" ? "true" : undefined}
+            onClick={() => navigate({ to: "/admin" })}
+          >
+            <span className="icon"><I.Shield size={14} /></span>
+            Admin
+          </button>
+        )}
       </nav>
 
       <div className="sidebar__group">

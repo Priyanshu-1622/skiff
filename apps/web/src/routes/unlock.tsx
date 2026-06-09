@@ -17,7 +17,11 @@ export function UnlockRoute() {
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
   useEffect(() => {
-    if (!loading && status?.unlocked) navigate({ to: "/" });
+    if (loading) return;
+    if (!status?.initialized) { navigate({ to: "/setup" }); return; }
+    if (status.unlocked) { navigate({ to: "/" }); return; }
+    // Team vaults log in by username on a separate screen.
+    if (status.mode === "team") navigate({ to: "/login" });
   }, [loading, status, navigate]);
 
   const isSetup = !status?.initialized;
@@ -44,8 +48,8 @@ export function UnlockRoute() {
     setBusy(true);
     try {
       if (isSetup) {
-        const ok = await setup(password);
-        if (!ok) { setError("Setup failed"); triggerShake(); }
+        const result = await setup(password);
+        if (!result.ok) { setError(result.error || "Setup failed"); triggerShake(); }
       } else {
         const result = await unlock(password);
         if (!result.ok) { setError(result.error || "Incorrect password"); triggerShake(); }
@@ -76,7 +80,7 @@ export function UnlockRoute() {
             <div className="unlock-mark"><I.Skiff size={22} /></div>
             <div className="unlock-wordmark">
               <span className="name">Skiff</span>
-              <span className="tag">{isSetup ? "setup" : "v0.1"}</span>
+              <span className="tag">{isSetup ? "setup" : "v0.2"}</span>
             </div>
             <p className="unlock-sub">
               {isSetup
