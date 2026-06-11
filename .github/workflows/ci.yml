@@ -27,6 +27,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      # The API and web packages import from @skiff/shared's compiled output,
+      # so it must be built before typecheck/tests run on a clean clone.
+      - name: Build shared package
+        run: pnpm --filter @skiff/shared build
+
       - name: Typecheck
         run: pnpm typecheck
 
