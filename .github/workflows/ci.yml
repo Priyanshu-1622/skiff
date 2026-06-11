@@ -12,13 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: 10
 
-      - uses: actions/setup-node@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20.x"
 
       # Native modules (better-sqlite3, argon2, ssh2) compile here because
       # pnpm-workspace.yaml allows their build scripts.
