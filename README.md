@@ -4,6 +4,7 @@ A self-hosted SSH connection manager. Store hosts, organize them in folders, con
 
 Open-source. AGPL-3.0. Single binary + SQLite — no cloud, no telemetry.
 
+[![CI](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml/badge.svg)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
