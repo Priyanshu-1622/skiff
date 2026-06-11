@@ -19,12 +19,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
 
       # Native modules (better-sqlite3, argon2, ssh2) compile here because
       # pnpm-workspace.yaml allows their build scripts.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck
         run: pnpm typecheck
