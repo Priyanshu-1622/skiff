@@ -144,6 +144,10 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
           return reply.code(401).send(err(ApiErrorCode.INVALID_PASSWORD, "Incorrect password"));
         }
 
+        // A successful unlock clears prior failures so a legitimate user isn't
+        // locked out by stale attempts (mirrors the team login path).
+        db.prepare("DELETE FROM unlock_attempts WHERE succeeded = 0").run();
+
         const sessionId = sessionStore.create(vaultKey);
         reply.setCookie("skiff_session", sessionId, sessionCookieOptions(config));
         return ok({ message: "Vault unlocked" });
