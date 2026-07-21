@@ -51,6 +51,8 @@ Skiff is for people who want to own their SSH inventory. Run it solo, or in team
 
 - Encrypted credential vault. AES-256-GCM at rest, key derived from your master password with argon2id (OWASP params). The key lives in memory while you're unlocked and gets zeroed on lock or idle timeout. The password itself is never stored — only an HMAC verifier so we can tell you "wrong password" without having to decrypt anything.
 - In-browser terminal. xterm.js over a WebSocket. Real SSH session, no fake shell.
+- **Persistent sessions.** Your SSH session lives on the server, not in the browser tab. Close the tab, lose your wifi, switch devices — reopen the host and you're reattached exactly where you left off, with recent scrollback replayed. Idle sessions are cleaned up automatically. No tmux required on the target host.
+- **Session recording & playback.** Optionally record every terminal session to disk in the open [asciicast](https://docs.asciinema.org/manual/asciicast/v2/) format and replay it later from the Recordings page. On by default in team mode (admins can review any member's sessions), off by default for personal use. Toggle it in Settings.
 - Folders, favorites, search. Search hits labels, hostnames, and usernames.
 - Imports your `~/.ssh/config`. Parses `Host`, `HostName`, `Port`, `User`, `IdentityFile`. Doesn't handle `Include` directives yet (see Known issues).
 - Dark / light themes. Persists in localStorage.

@@ -4,7 +4,7 @@ import { generateKdfParams, deriveVaultKey, computeVerifier } from "../crypto/va
 import { generateSharedKey, provisionUser } from "../crypto/team-vault.js";
 import type { SessionStore } from "../crypto/session-store.js";
 import type { Config } from "../config.js";
-import { sessionCookieOptions } from "../lib/cookie.js";
+import { sessionCookieOptions, clearSessionCookieOptions } from "../lib/cookie.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 import { SCHEMA_VERSION } from "../db/client.js";
@@ -28,10 +28,14 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
     const { sessionStore, config } = deps;
 
-    app.get("/api/vault/status", async (req) => {
+    app.get("/api/vault/status", async (req, reply) => {
+      // Never let the browser (or an intermediate proxy) cache this — a
+      // stale "unlocked" response served after logout would bounce the
+      // user straight back into the app.
+      reply.header("Cache-Control", "no-store");
       const db = app.skiffDb.raw;
       const meta = db.prepare("SELECT * FROM vault_meta WHERE id = 1").get() as
-        | { idle_timeout_minutes: number; mode?: string } | undefined;
+        | { idle_timeout_minutes: number; mode?: string; recording_enabled?: number } | undefined;
       const sessionId = req.cookies?.skiff_session;
       const entry = sessionId ? sessionStore.getEntry(sessionId) : null;
       return ok({
@@ -39,6 +43,7 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
         unlocked: !!entry,
         mode: meta?.mode ?? "personal",
         idleTimeoutMinutes: meta?.idle_timeout_minutes ?? 15,
+        recordingEnabled: !!meta?.recording_enabled,
         user: entry?.user ?? null,
       });
     });
@@ -61,8 +66,8 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
         const now = new Date().toISOString();
 
         db.prepare(
-          `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, mode, created_at)
-           VALUES (1, ?, ?, ?, ?, ?, ?, 'team', ?)`
+          `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, mode, recording_enabled, created_at)
+           VALUES (1, ?, ?, ?, ?, ?, ?, 'team', 1, ?)`
         ).run(
           SCHEMA_VERSION,
           provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
@@ -154,8 +159,10 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
       const sessionId = req.cookies?.skiff_session;
       if (sessionId) {
         sessionStore.destroy(sessionId);
-        reply.clearCookie("skiff_session", { path: "/" });
       }
+      // Clear with the same attributes the cookie was set with, otherwise the
+      // browser may keep it and the next status check still looks logged in.
+      reply.clearCookie("skiff_session", clearSessionCookieOptions(config));
       return ok({ message: "Vault locked" });
     });
   };

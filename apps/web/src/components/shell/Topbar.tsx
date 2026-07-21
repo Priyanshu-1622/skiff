@@ -13,7 +13,7 @@ export function Topbar({ searchValue, onSearchChange, username, hideSearch }: To
       <div className="topbar__brand">
         <div className="mark"><I.Skiff size={14} /></div>
         <span className="name">Skiff</span>
-        <span className="v">v0.2</span>
+        <span className="v">v0.3</span>
       </div>
 
       {!hideSearch ? (

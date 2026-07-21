@@ -16,9 +16,11 @@ import { authRoutes } from "./routes/auth.js";
 import { teamRoutes } from "./routes/team.js";
 import { hostRoutes } from "./routes/hosts.js";
 import { terminalRoutes } from "./routes/terminal.js";
+import { recordingsRoutes } from "./routes/recordings.js";
 import { importRoutes } from "./routes/import.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { SessionStore } from "./crypto/session-store.js";
+import { SessionManager } from "./lib/session-manager.js";
 import { err } from "./lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 import { ZodError } from "zod";
@@ -175,9 +177,11 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   ).get() as { idle_timeout_minutes: number } | undefined;
   const idleTimeout = vaultMeta?.idle_timeout_minutes ?? 15;
   const sessionStore = new SessionStore(idleTimeout);
+  const sessionManager = new SessionManager();
 
   app.addHook("onClose", async () => {
     sessionStore.close();
+    sessionManager.shutdown();
   });
 
   const startedAt = new Date();
@@ -185,9 +189,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(authRoutes({ sessionStore, config }));
   await app.register(teamRoutes({ sessionStore, config }));
   await app.register(hostRoutes({ sessionStore }));
-  await app.register(terminalRoutes({ sessionStore }));
+  await app.register(terminalRoutes({ sessionStore, sessionManager, dataDir: config.dataDir }));
   await app.register(importRoutes({ sessionStore }));
   await app.register(settingsRoutes({ sessionStore, config }));
+  await app.register(recordingsRoutes({ sessionStore, sessionManager, dataDir: config.dataDir }));
 
   return app;
 }

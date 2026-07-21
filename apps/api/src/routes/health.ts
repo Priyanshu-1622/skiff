@@ -22,7 +22,7 @@ export const healthRoute: (deps: HealthRouteDeps) => FastifyPluginAsync =
 
       return ok({
         status: "ok" as const,
-        version: "0.2.0",
+        version: "0.3.0",
         schemaVersion: deps.schemaVersion,
         uptimeSeconds,
         db: row ? "connected" : "empty",

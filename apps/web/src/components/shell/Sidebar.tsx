@@ -20,6 +20,8 @@ export interface SidebarProps {
   vault?: { unlocked: boolean; idleMinutes: number };
   onVaultClick?: () => void;
   isTeamAdmin?: boolean;
+  mode?: "personal" | "team";
+  username?: string;
 }
 
 export function Sidebar({
@@ -33,6 +35,8 @@ export function Sidebar({
   vault,
   onVaultClick,
   isTeamAdmin = false,
+  mode = "personal",
+  username,
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -61,6 +65,16 @@ export function Sidebar({
           <span className="icon"><I.Star size={14} /></span>
           Favorites
           <span className="count">{favoritesCount}</span>
+        </button>
+
+        <button
+          type="button"
+          className="nav-item"
+          aria-current={location.pathname === "/recordings" ? "true" : undefined}
+          onClick={() => navigate({ to: "/recordings" })}
+        >
+          <span className="icon"><I.Film size={14} /></span>
+          Recordings
         </button>
 
         <button
@@ -112,19 +126,25 @@ export function Sidebar({
       )}
 
       <div className="sidebar__foot">
-        <div
-          className="vault-status"
-          onClick={onVaultClick}
-          style={{ cursor: onVaultClick ? "pointer" : "default" }}
-        >
+        <div className="vault-status">
           <div className={`dot${vault && !vault.unlocked ? " is-locked" : ""}`} />
           <div className="meta">
-            <div className="l1">{vault?.unlocked ? "Vault unlocked" : "Vault locked"}</div>
+            <div className="l1">
+              {mode === "team" && username
+                ? `Signed in as ${username}`
+                : vault?.unlocked ? "Vault unlocked" : "Vault locked"}
+            </div>
             {vault?.unlocked && (
               <div className="l2">locks after {vault.idleMinutes}min idle</div>
             )}
           </div>
         </div>
+        {vault?.unlocked && onVaultClick && (
+          <button type="button" className="logout-btn" onClick={onVaultClick}>
+            <I.Lock size={13} />
+            {mode === "team" ? "Log out" : "Lock vault"}
+          </button>
+        )}
       </div>
     </aside>
   );

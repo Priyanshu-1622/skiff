@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export interface DbConfig {
   /** Absolute path to the data directory. Created if it doesn't exist. */
@@ -51,6 +51,16 @@ export function openDatabase(config: DbConfig): SkiffDb {
   // so we check the existing columns first. Safe to run on every boot.
   runColumnMigrations(db);
 
+  // Reconcile recordings left mid-write by a crash or hard stop. On a clean
+  // shutdown these are marked 'complete'; anything still 'recording' at boot
+  // had no graceful finalize, so flag it 'interrupted' (the .cast file is
+  // still playable up to the last flushed event).
+  try {
+    db.prepare(
+      "UPDATE session_recordings SET status = 'interrupted' WHERE status = 'recording'"
+    ).run();
+  } catch { /* table may not exist on a very old db; schema.exec above creates it */ }
+
   return {
     raw: db,
     close: () => db.close(),
@@ -61,7 +71,7 @@ export function openDatabase(config: DbConfig): SkiffDb {
  * Add columns that can't live in schema.sql because ADD COLUMN errors if
  * the column already exists. Each migration checks before applying.
  */
-function runColumnMigrations(db: Database.Database): void {
+export function runColumnMigrations(db: Database.Database): void {
   const hasColumn = (table: string, column: string): boolean => {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     return cols.some((c) => c.name === column);
@@ -71,6 +81,18 @@ function runColumnMigrations(db: Database.Database): void {
   if (!hasColumn("vault_meta", "mode")) {
     db.exec(
       "ALTER TABLE vault_meta ADD COLUMN mode TEXT NOT NULL DEFAULT 'personal'"
+    );
+  }
+
+  // v3: session recording toggle. Default off (0); existing team vaults are
+  // flipped on below so team admins get recording without extra setup.
+  if (!hasColumn("vault_meta", "recording_enabled")) {
+    db.exec(
+      "ALTER TABLE vault_meta ADD COLUMN recording_enabled INTEGER NOT NULL DEFAULT 0"
+    );
+    // Existing team vaults get recording on by default; personal stays off.
+    db.exec(
+      "UPDATE vault_meta SET recording_enabled = 1 WHERE mode = 'team'"
     );
   }
 }

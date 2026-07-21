@@ -1,0 +1,220 @@
+/* ============================================================
+   Skiff — Session recordings
+   List of past sessions + asciinema playback modal.
+   Uses the shared token set (tokens.css).
+   ============================================================ */
+
+.rec-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.rec-header {
+  margin-bottom: 28px;
+}
+
+.rec-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--fg-2);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 16px;
+}
+.rec-back:hover { color: var(--fg-0); }
+
+.rec-header h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--fg-0);
+  margin: 0 0 6px;
+}
+
+.rec-subtitle {
+  font-size: 13.5px;
+  color: var(--fg-2);
+  margin: 0;
+  max-width: 560px;
+  line-height: 1.5;
+}
+
+/* ── Empty state ─────────────────────────────────────────── */
+.rec-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 64px 20px;
+  color: var(--fg-3);
+  text-align: center;
+}
+.rec-empty p { margin: 0; font-size: 14px; }
+.rec-empty-hint { font-size: 12.5px; color: var(--fg-3); }
+
+/* ── List ────────────────────────────────────────────────── */
+.rec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.rec-row:hover { border-color: var(--border-strong); }
+
+.rec-row-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.rec-row-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--accent-500);
+}
+
+.rec-row-info { min-width: 0; }
+
+.rec-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rec-row-meta {
+  font-size: 12px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.rec-live-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--status-error);
+  font-weight: 600;
+}
+
+.rec-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rec-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.rec-icon-btn:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+  border-color: var(--border);
+}
+.rec-icon-btn.rec-danger:hover {
+  color: var(--status-error);
+  border-color: var(--status-error);
+}
+
+/* ── Playback modal ──────────────────────────────────────── */
+.rec-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, black 62%, transparent);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.rec-modal {
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  width: min(960px, 100%);
+  max-height: 88vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.rec-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rec-modal-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--fg-0);
+}
+.rec-modal-sub {
+  font-size: 12px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.rec-player {
+  padding: 12px;
+  overflow: auto;
+  background: #121212;
+}
+
+.rec-modal-error {
+  padding: 40px;
+  text-align: center;
+  color: var(--status-error);
+  font-size: 13.5px;
+}
+
+.rec-interrupted-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--fg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+}

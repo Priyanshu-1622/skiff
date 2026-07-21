@@ -37,6 +37,7 @@ export interface VaultStatus {
   initialized: boolean;
   unlocked: boolean;
   idleTimeoutMinutes: number;
+  recordingEnabled: boolean;
   mode: VaultMode;
   user: TeamUser | null;
 }

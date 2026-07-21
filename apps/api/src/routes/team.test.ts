@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 
 import { buildApp } from "../app.js";
 import type { SkiffDb } from "../db/client.js";
+import { runColumnMigrations } from "../db/client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,15 +33,15 @@ const TEST_CONFIG = {
   cookieSecret: "test-cookie-secret-at-least-32-chars-long-xxxxxxxxxx",
 };
 
-/** In-memory SQLite with schema + the runtime column migration applied. */
+/** In-memory SQLite with schema + the real runtime column migrations applied. */
 function memDb(): SkiffDb {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   const schema = readFileSync(join(__dirname, "../db/schema.sql"), "utf-8");
   db.exec(schema);
-  // Mirror the additive migration runColumnMigrations() performs at boot.
-  const hasMode = db.prepare("PRAGMA table_info(vault_meta)").all().some((c: any) => c.name === "mode");
-  if (!hasMode) db.exec("ALTER TABLE vault_meta ADD COLUMN mode TEXT NOT NULL DEFAULT 'personal'");
+  // Apply the same additive migrations the app runs at boot, so the test DB
+  // matches production exactly (and can't drift when new columns are added).
+  runColumnMigrations(db);
   return { raw: db, close: () => db.close() };
 }
 

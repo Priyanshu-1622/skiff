@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { buildApp } from "../app.js";
-import { SCHEMA_VERSION, type SkiffDb } from "../db/client.js";
+import { SCHEMA_VERSION, runColumnMigrations, type SkiffDb } from "../db/client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +25,7 @@ function memDb(): SkiffDb {
   const schemaPath = join(__dirname, "../db/schema.sql");
   const schema = readFileSync(schemaPath, "utf-8");
   db.exec(schema);
+  runColumnMigrations(db);
   return { raw: db, close: () => db.close() };
 }
 

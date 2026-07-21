@@ -7,6 +7,7 @@ import { SettingsRoute } from "@/routes/settings";
 import { TeamLoginRoute } from "@/routes/team-login";
 import { TeamAdminRoute } from "@/routes/team-admin";
 import { SetupRoute } from "@/routes/setup";
+import { RecordingsRoute } from "@/routes/recordings";
 
 const rootRoute = createRootRoute({ component: RootLayout });
 
@@ -17,7 +18,8 @@ const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/set
 const teamLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login", component: TeamLoginRoute });
 const teamAdminRoute = createRoute({ getParentRoute: () => rootRoute, path: "/admin", component: TeamAdminRoute });
 const setupRoute = createRoute({ getParentRoute: () => rootRoute, path: "/setup", component: SetupRoute });
+const recordingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/recordings", component: RecordingsRoute });
 
-const routeTree = rootRoute.addChildren([unlockRoute, dashboardRoute, terminalRoute, settingsRoute, teamLoginRoute, teamAdminRoute, setupRoute]);
+const routeTree = rootRoute.addChildren([unlockRoute, dashboardRoute, terminalRoute, settingsRoute, teamLoginRoute, teamAdminRoute, setupRoute, recordingsRoute]);
 export const router = createRouter({ routeTree });
 declare module "@tanstack/react-router" { interface Register { router: typeof router; } }

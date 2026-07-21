@@ -11,6 +11,19 @@ import * as I from "@/components/icons";
 export function DashboardRoute() {
   const navigate = useNavigate();
   const { status, loading, fetchStatus, lock } = useVault();
+
+  // Explicit logout. We call the lock endpoint, then do a HARD browser
+  // redirect (window.location) rather than client-side routing. A full page
+  // load discards all in-memory state, so there is no stale status left to
+  // bounce us back to the dashboard — the fresh load sees the cleared session
+  // and lands on the login/unlock screen for good.
+  const handleLogout = async () => {
+    const mode = status?.mode;
+    try {
+      await lock();
+    } catch { /* redirect regardless */ }
+    window.location.href = mode === "team" ? "/login" : "/unlock";
+  };
   const { theme, toggle } = useTheme();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -170,8 +183,10 @@ export function DashboardRoute() {
           if (folder) setFolderToDelete({ id: folder.id, name: folder.name });
         },
         vault: status ? { unlocked: status.unlocked, idleMinutes: status.idleTimeoutMinutes } : undefined,
-        onVaultClick: lock,
+        onVaultClick: handleLogout,
         isTeamAdmin: status?.mode === "team" && !!status.user?.isAdmin,
+        mode: status?.mode,
+        username: status?.user?.username,
       }}
     >
       {/* Main toolbar */}

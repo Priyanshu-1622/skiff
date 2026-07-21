@@ -197,7 +197,7 @@ export function TerminalRoute() {
             break;
           case "status":
             setStatusMsg(msg.message || "");
-            if (msg.message === "Connected") {
+            if (msg.message === "Connected" || msg.message === "Reattached") {
               setConnState("connected");
               streamReadyRef.current = true;
               // Make sure the server-side PTY has our dimensions before we

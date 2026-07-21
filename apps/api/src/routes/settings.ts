@@ -80,6 +80,14 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
       return ok({ idleTimeoutMinutes: body.minutes });
     });
 
+    app.put("/api/settings/recording", { preHandler: auth }, async (req) => {
+      const body = z.object({ enabled: z.boolean() }).parse(req.body);
+      app.skiffDb.raw
+        .prepare("UPDATE vault_meta SET recording_enabled = ? WHERE id = 1")
+        .run(body.enabled ? 1 : 0);
+      return ok({ recordingEnabled: body.enabled });
+    });
+
     app.get("/api/settings/backup", { preHandler: auth }, async () => {
       const db = app.skiffDb.raw;
       const hosts = db.prepare("SELECT * FROM hosts").all();
@@ -150,7 +158,9 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
           provisioned.verifier, provisioned.sharedKeyBlob, provisioned.sharedKeyNonce, now,
         );
-        db.prepare("UPDATE vault_meta SET mode = 'team' WHERE id = 1").run();
+        // Team mode enables session recording by default (admins can review
+        // member sessions). Matches the default for freshly-created team vaults.
+        db.prepare("UPDATE vault_meta SET mode = 'team', recording_enabled = 1 WHERE id = 1").run();
       });
       tx();
 

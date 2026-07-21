@@ -29,15 +29,25 @@ async function handleResponse<T>(res: Response, path: string): Promise<T> {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(path, { method: "GET", credentials: "include" });
+  // no-store: auth/vault status must never be served from the browser's HTTP
+  // cache — a stale "unlocked" read here sends a just-logged-out user right
+  // back into the app.
+  const res = await fetch(path, { method: "GET", credentials: "include", cache: "no-store" });
   return handleResponse<T>(res, path);
 }
 
 export async function apiPost<T = unknown>(path: string, payload?: unknown): Promise<T> {
+  // Only send a JSON content-type when there's actually a body. A bodyless
+  // POST (e.g. /api/vault/lock) sent with `Content-Type: application/json`
+  // is rejected by Fastify with FST_ERR_CTP_EMPTY_JSON_BODY (400) before the
+  // handler ever runs — which silently broke logout.
   const res = await fetch(path, {
-    method: "POST", credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: payload === undefined ? undefined : JSON.stringify(payload),
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    ...(payload === undefined
+      ? {}
+      : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
   });
   return handleResponse<T>(res, path);
 }

@@ -186,3 +186,24 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+-- Session recordings (v3). Metadata only; the actual asciicast file lives
+-- on disk under <dataDir>/recordings/<id>.cast. A row exists once a
+-- recording starts; ended_at/duration/bytes are filled in when it closes.
+CREATE TABLE IF NOT EXISTS session_recordings (
+  id TEXT PRIMARY KEY,
+  host_id TEXT,
+  host_label TEXT,
+  hostname TEXT,
+  user_id TEXT,
+  username TEXT,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  duration_ms INTEGER,
+  bytes INTEGER,
+  status TEXT NOT NULL DEFAULT 'recording'
+);
+
+CREATE INDEX IF NOT EXISTS idx_recordings_started ON session_recordings(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_recordings_user ON session_recordings(user_id);
+CREATE INDEX IF NOT EXISTS idx_recordings_host ON session_recordings(host_id);

@@ -417,12 +417,30 @@
   border: 0;
   width: 100%;
   text-align: left;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease);
 }
 
-.vault-status:hover {
-  background: var(--bg-2);
+.logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px var(--s-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-1);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.logout-btn:hover {
+  background: var(--status-error-bg, color-mix(in oklab, var(--status-error) 12%, transparent));
+  border-color: var(--status-error);
+  color: var(--status-error);
 }
 
 .vault-status .dot {

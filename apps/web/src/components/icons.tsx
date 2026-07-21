@@ -267,3 +267,28 @@ export const Empty = (p: IconProps) => (
    or:
      import * as I from "@/components/icons";  ->  <I.Server />
 */
+
+export const Film = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2" y="3" width="12" height="10" rx="1.5" />
+    <path d="M2 6 H14 M2 10 H14 M5.5 3 V13 M10.5 3 V13" />
+  </Icon>
+);
+
+export const Play = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 3.5 L12 8 L5 12.5 Z" />
+  </Icon>
+);
+
+export const Trash = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 4.5 H13 M6.5 4.5 V3.2 H9.5 V4.5 M4.5 4.5 L5 13 H11 L11.5 4.5" />
+  </Icon>
+);
+
+export const ChevronLeft = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 4 L6 8 L10 12" />
+  </Icon>
+);

@@ -17,6 +17,7 @@ export const useVault = create<VaultState>((set, get) => ({
   loading: true,
 
   fetchStatus: async () => {
+    set({ loading: true });
     try {
       const data = await apiGet<VaultStatus>("/api/vault/status");
       set({ status: data, loading: false });
@@ -62,7 +63,12 @@ export const useVault = create<VaultState>((set, get) => ({
   lock: async () => {
     try {
       await apiPost("/api/vault/lock");
-    } catch { /* ignore */ }
+    } catch { /* ignore — we lock the UI regardless */ }
+    // Immediately reflect the locked state locally so the redirect effect
+    // fires without waiting on (or depending on) the status refetch.
+    const prev = get().status;
+    set({ status: prev ? { ...prev, unlocked: false, user: null } : prev, loading: false });
+    // Then reconcile with the server.
     await get().fetchStatus();
   },
 }));

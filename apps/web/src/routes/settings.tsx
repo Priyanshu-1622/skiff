@@ -88,7 +88,7 @@ export function SettingsRoute() {
           </button>
         ))}
         <div className="foot">
-          <span>v0.2.0</span>
+          <span>v0.3.0</span>
           <span>AGPL-3.0</span>
         </div>
       </nav>
@@ -110,10 +110,21 @@ export function SettingsRoute() {
 }
 
 function SecuritySection() {
+  const { status, fetchStatus } = useVault();
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [timeout, setTimeout_] = useState("15");
+
+  const recordingOn = !!status?.recordingEnabled;
+  const toggleRecording = useMutation({
+    mutationFn: (enabled: boolean) => apiPut("/api/settings/recording", { enabled }),
+    onSuccess: (_d, enabled) => {
+      toast.success(enabled ? "Session recording enabled" : "Session recording disabled");
+      fetchStatus();
+    },
+    onError: (e: any) => toast.error("Couldn't update recording", { description: e.message }),
+  });
 
   const changePw = useMutation({
     mutationFn: () => apiPut("/api/settings/password", { currentPassword: currentPw, newPassword: newPw }),
@@ -187,6 +198,34 @@ function SecuritySection() {
                 style={{ width: 64, background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "5px 8px", color: "var(--fg-0)", fontFamily: "var(--font-mono)", fontSize: 13, outline: "none", textAlign: "right" }} />
               <span style={{ fontSize: 12, color: "var(--fg-2)" }}>min</span>
               <button className="btn btn--secondary" style={{ height: 28, padding: "0 10px", fontSize: 12 }} disabled={!timeoutValid || saveTimeout.isPending} onClick={() => saveTimeout.mutate()}>Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="s-section" style={{ marginTop: 14 }}>
+        <div className="s-section__head">
+          <div className="s-section__title">Session recording</div>
+        </div>
+        <div className="s-section__body">
+          <div className="s-row">
+            <div>
+              <div className="s-row__label">Record terminal sessions</div>
+              <div className="s-row__desc">
+                Save a replayable recording of each SSH session to your server, in the
+                open asciicast format.{status?.mode === "team" ? " In team mode, admins can review any member's sessions." : ""} View them under Recordings.
+              </div>
+            </div>
+            <div className="s-row__control">
+              <button
+                role="switch"
+                aria-checked={recordingOn}
+                className={"s-toggle" + (recordingOn ? " s-toggle--on" : "")}
+                disabled={toggleRecording.isPending}
+                onClick={() => toggleRecording.mutate(!recordingOn)}
+              >
+                <span className="s-toggle__knob" />
+              </button>
             </div>
           </div>
         </div>
@@ -322,7 +361,7 @@ function AboutSection() {
       <div className="s-section">
         <div className="s-section__body" style={{ paddingTop: 14 }}>
           {[
-            ["Version", "0.2.0"],
+            ["Version", "0.3.0"],
             ["License", "AGPL-3.0"],
             ["Stack", "React + Fastify + SQLite"],
             ["Encryption", "AES-256-GCM + argon2id"],
