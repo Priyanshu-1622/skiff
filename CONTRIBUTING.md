@@ -76,3 +76,28 @@ Skiff intentionally does a small set of things well rather than everything. Some
 ## License
 
 By contributing, you agree that your contributions are licensed under the project's **AGPL-3.0** license, the same terms as the rest of Skiff.
+
+### Sign your commits
+
+Every commit needs a `Signed-off-by` line. Add one automatically with `-s`:
+
+```bash
+git commit -s -m "Fix reconnect after network change"
+```
+
+This is the [Developer Certificate of Origin](https://developercertificate.org/):
+you're asserting that you wrote the code, or have the right to submit it, and
+that you're contributing it under the license above. There's nothing to sign and
+no document to store.
+
+It's checked by CI. The reason is practical rather than bureaucratic: without a
+record of who agreed to what, anything that ever needs contributors' agreement —
+a license change, a relicensed component — means tracking down every past
+contributor by hand. A one-line habit now avoids that entirely.
+
+If you forget:
+
+```bash
+git commit --amend -s          # most recent commit
+git rebase --signoff main      # several commits
+```
