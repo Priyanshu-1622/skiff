@@ -220,4 +220,5 @@ AGPL-3.0. You can run it, modify it, host it. If you run a modified version as a
 
 ---
 
-Built by Priyanshu. Bug reports and PRs welcome.
+Built by Priyanshu. 
+Bug reports and PRs welcome.
