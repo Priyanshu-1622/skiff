@@ -73,11 +73,25 @@ When in doubt, read [SECURITY.md](./SECURITY.md) — it describes the intended m
 
 Skiff intentionally does a small set of things well rather than everything. Some requests — full RBAC, SFTP, SSO, bastion chains — are explicitly out of scope for the open-source project. That's not a judgment on the idea; it's about keeping the project maintainable by a small team. If you're not sure whether something fits, the issue thread is the place to find out.
 
-## License
+## Licensing and the two checks on your PR
 
-By contributing, you agree that your contributions are licensed under the project's **AGPL-3.0** license, the same terms as the rest of Skiff.
+Skiff is licensed under the **AGPL-3.0**. By contributing, your work is
+licensed under those same terms as the rest of the project.
 
-### Sign your commits
+Your pull request runs two automated checks about this. They look similar and
+are often confused, so here is what each one actually does:
+
+| Check | Question it answers | What you do |
+| --- | --- | --- |
+| **DCO** | Did you write this, and do you have the right to submit it? | Add `-s` to your commits |
+| **CLA** | May this code also be used in the commercial edition? | Reply once on your first PR |
+
+**They are not interchangeable.** Signing off a commit certifies where the code
+came from. It does not grant permission to use that code under a different
+license — and because Skiff is AGPL, that permission has to be given explicitly
+or it hasn't been given at all. The CLA is where that happens.
+
+### Sign your commits (DCO)
 
 Every commit needs a `Signed-off-by` line. Add one automatically with `-s`:
 
@@ -90,14 +104,37 @@ you're asserting that you wrote the code, or have the right to submit it, and
 that you're contributing it under the license above. There's nothing to sign and
 no document to store.
 
-It's checked by CI. The reason is practical rather than bureaucratic: without a
-record of who agreed to what, anything that ever needs contributors' agreement —
-a license change, a relicensed component — means tracking down every past
-contributor by hand. A one-line habit now avoids that entirely.
-
 If you forget:
 
 ```bash
 git commit --amend -s          # most recent commit
 git rebase --signoff main      # several commits
 ```
+
+### Sign the CLA (once)
+
+On your first pull request a bot will ask you to confirm the
+[Contributor License Agreement](./CLA.md). You reply on the PR with one
+sentence and it records your signature. You are never asked again.
+
+The short version: **you keep the copyright in everything you write.** You are
+granting permission, not giving anything away, and you remain free to reuse your
+own contribution anywhere else. The permission exists so that a planned
+commercial edition — the thing intended to fund this open-source project — can
+include contributed code without the maintainer having to track down every past
+contributor individually.
+
+**Contributing on behalf of a company?** If you're writing this on company time
+or equipment, your employer probably owns the copyright, not you — in which case
+your signature alone doesn't grant what the agreement needs. Your employer signs
+the [Corporate CLA](./CLA-CORPORATE.md) once, and after that their employees
+contribute normally. Open an issue and it can be sorted out.
+
+If you're contributing in your own time, on your own machine, and outside the
+scope of your job, the individual agreement is enough.
+
+It doesn't allow anyone to close the open-source project. Skiff stays AGPL.
+
+If the agreement worries you, open an issue and ask before contributing. That's
+a reasonable thing to want cleared up first, and it won't be held against your
+PR.

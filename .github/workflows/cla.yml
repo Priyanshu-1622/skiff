@@ -1,0 +1,83 @@
+name: CLA
+
+# Asks first-time contributors to sign the Contributor License Agreement, and
+# records their signature.
+#
+# How it works: when a pull request is opened, the action checks whether the
+# author has already signed. If not, it posts a comment asking them to reply
+# with the sign-off sentence. Once they do, their name is appended to
+# signatures/cla.json on the cla-signatures branch and the check goes green.
+# They are never asked again.
+#
+# WHY A CLA AND NOT JUST THE DCO:
+#   The DCO check (dco.yml) proves a contributor wrote what they submitted and
+#   agreed to the project's license. It does NOT grant the right to relicense
+#   their work. Since Skiff is AGPL-3.0 and a closed commercial edition is
+#   planned, that right has to be granted explicitly. That is what this does.
+#   Both checks run; they answer different questions.
+#
+# ONE-TIME SETUP BEFORE THIS WORKS — see APPLY-CLA.md:
+#   1. Create a branch named `cla-signatures` in this repository.
+#   2. Create a fine-grained personal access token with Contents: read/write
+#      on this repository.
+#   3. Add it as a repository secret named CLA_SIGNATURES_TOKEN.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    name: Signed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check or record signature
+        # Only run on PR events, or on comments that are actually on a PR.
+        if: (github.event.issue.pull_request && contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')) || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          # Provided automatically by GitHub — used to comment on the PR.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Your own token — needed to write to the signatures branch.
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_SIGNATURES_TOKEN }}
+        with:
+          path-to-signatures: 'signatures/cla.json'
+          path-to-document: 'https://github.com/Priyanshu-1622/skiff/blob/main/CLA.md'
+          branch: 'cla-signatures'
+
+          # The exact sentence a contributor replies with.
+          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
+
+          custom-notsigned-prcomment: |
+            Thanks for the pull request.
+
+            Before this can be merged, Skiff needs you to sign its
+            [Contributor License Agreement](https://github.com/Priyanshu-1622/skiff/blob/main/CLA.md).
+            It is short and worth reading — the summary is that **you keep the
+            copyright in your work**, and you grant permission for it to be used
+            in Skiff, including in the commercial edition that funds the
+            open-source project.
+
+            To sign, reply to this pull request with exactly:
+
+            ---
+
+            **Contributing on behalf of a company?** Your employer likely needs
+            to sign the Corporate CLA as well — see section 19 of the agreement.
+            Open an issue and it can be sorted out.
+
+          custom-allsigned-prcomment: 'All contributors have signed the CLA. Thanks.'
+
+          # People who never need to sign: the maintainer, and bots.
+          allowlist: Priyanshu-1622,dependabot[bot],renovate[bot],*[bot]
+
+          # Merge commits and empty commits are generated, not authored.
+          lock-pullrequest-aftermerge: false

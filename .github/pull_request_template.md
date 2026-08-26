@@ -22,6 +22,8 @@ Fixes #(issue number)
 - [ ] Added tests that prove the fix/feature works
 - [ ] All tests pass locally (`pnpm test`)
 - [ ] TypeScript check passes (`pnpm typecheck`)
+- [ ] Commits are signed off (`git commit -s`) — see CONTRIBUTING.md
+- [ ] CLA signed (the bot will prompt you on your first PR)
 
 ## Screenshots (if applicable)
 <!-- Add screenshots for UI changes -->
