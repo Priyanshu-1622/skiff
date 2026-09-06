@@ -72,6 +72,14 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
             deps.sessionManager.write(managedId, Buffer.from(msg.data, "base64"));
           } else if (msg.type === "resize") {
             deps.sessionManager.resize(managedId, msg.rows, msg.cols);
+          } else if (msg.type === "end_session") {
+            // Closing the socket only detaches — that is what makes sessions
+            // survive a closed tab. Ending one has to be asked for explicitly,
+            // and it is the only path that runs onEnd, so it is also the only
+            // path that finalizes a recording with its duration and byte count.
+            // Without this every recording ended up "interrupted" with no
+            // duration, because the session outlived every client that left.
+            deps.sessionManager.end(managedId, "Session ended by user");
           }
         } catch { /* ignore malformed messages */ }
       });

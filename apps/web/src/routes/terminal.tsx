@@ -72,8 +72,7 @@ export function TerminalRoute() {
       // Ctrl+Shift+W: disconnect
       if (e.ctrlKey && e.shiftKey && (e.key === "W" || e.key === "w")) {
         e.preventDefault();
-        socketRef.current?.close();
-        navigate({ to: "/" });
+        endSessionRef.current?.();
         return;
       }
       // Ctrl+= or Ctrl++: increase font size
@@ -98,6 +97,27 @@ export function TerminalRoute() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  /**
+   * Tell the server to end the session, then leave.
+   *
+   * Closing the socket on its own only detaches — the session stays alive on
+   * the server, which is the point of it. But that also means it never runs
+   * its end hook, so a recording is never finalized and shows up as
+   * "interrupted" with no duration or size. Anyone pressing Disconnect means
+   * they are finished, so say so explicitly.
+   */
+  const endSession = useCallback(() => {
+    const sock = socketRef.current;
+    if (sock?.readyState === WebSocket.OPEN) {
+      try { sock.send(JSON.stringify({ type: "end_session" })); } catch { /* closing anyway */ }
+    }
+    sock?.close();
+    navigate({ to: "/" });
+  }, [navigate]);
+
+  const endSessionRef = useRef<(() => void) | null>(null);
+  useEffect(() => { endSessionRef.current = endSession; }, [endSession]);
 
   const reconnect = useCallback(() => {
     socketRef.current?.close();
@@ -408,10 +428,7 @@ export function TerminalRoute() {
         <button
           type="button"
           className="conn__btn disconnect"
-          onClick={() => {
-            socketRef.current?.close();
-            navigate({ to: "/" });
-          }}
+          onClick={endSession}
         >
           <I.Close size={11} />
           Disconnect

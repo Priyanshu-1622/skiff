@@ -104,8 +104,17 @@ function PlayerModal({ rec, onClose }: { rec: Recording; onClose: () => void }) 
   }, [rec.id]);
 
   return (
-    <div className="rec-modal-overlay" onClick={onClose}>
-      <div className="rec-modal" onClick={(e) => e.stopPropagation()}>
+    // Close on a click that lands on the overlay itself, rather than stopping
+    // propagation inside the modal. asciinema-player is SolidJS and delegates
+    // its events from `document`; React 17+ attaches its root below that, so a
+    // stopPropagation() here swallowed the native event before the player ever
+    // saw it. Dragging the timeline still worked (mousedown/mousemove), but
+    // play, pause and fullscreen — all clicks — silently did nothing.
+    <div
+      className="rec-modal-overlay"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="rec-modal">
         <div className="rec-modal-head">
           <div>
             <div className="rec-modal-title">{rec.hostLabel || rec.hostname || "Session"}</div>
