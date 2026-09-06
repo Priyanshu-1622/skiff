@@ -2,12 +2,18 @@
 
 <img src="docs/banner.svg" alt="Skiff — your SSH session doesn't die with the browser tab" width="820">
 
-<br>
+<br><br>
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Priyanshu-1622/skiff/ci.yml?style=flat-square&label=build)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/package-json/v/Priyanshu-1622/skiff?style=flat-square&label=version)](https://github.com/Priyanshu-1622/skiff/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue?style=flat-square)](https://nodejs.org)
+[![Docker](https://img.shields.io/badge/docker-compose-blue?style=flat-square&logo=docker&logoColor=white)](#docker)
+[![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen?style=flat-square)](#what-makes-it-different)
+[![Last commit](https://img.shields.io/github/last-commit/Priyanshu-1622/skiff?style=flat-square)](https://github.com/Priyanshu-1622/skiff/commits/main)
 [![Stars](https://img.shields.io/github/stars/Priyanshu-1622/skiff?style=flat-square)](https://github.com/Priyanshu-1622/skiff/stargazers)
+
+<br>
 
 **[Website](https://skiffssh.me)** · **[Download the desktop app](https://skiffssh.me/download.html)** · [Quick start](#quick-start) · [Security model](#security-model--the-short-version) · [What it doesn't do](#what-skiff-doesnt-do)
 
