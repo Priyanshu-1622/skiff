@@ -1,65 +1,176 @@
-# Skiff
+<div align="center">
 
-A self-hosted SSH connection manager. Store hosts, organize them in folders, connect through an in-browser terminal. Credentials are encrypted at rest. Use it solo, or in team mode where several people share one encrypted vault with their own logins and a full audit log.
+<img src="docs/banner.svg" alt="Skiff — your SSH session doesn't die with the browser tab" width="880">
 
-Open-source. AGPL-3.0. Single binary + SQLite — no cloud, no telemetry.
+<br>
 
-[![CI](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml/badge.svg)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
-![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
-![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
+[![CI](https://img.shields.io/github/actions/workflow/status/Priyanshu-1622/skiff/ci.yml?style=flat-square&labelColor=161B22&color=4C8DFF&label=build)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-4C8DFF?style=flat-square&labelColor=161B22)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-4C8DFF?style=flat-square&labelColor=161B22)](https://nodejs.org)
+[![Docker](https://img.shields.io/badge/docker-one%20command-4C8DFF?style=flat-square&labelColor=161B22)](#docker)
+[![Stars](https://img.shields.io/github/stars/Priyanshu-1622/skiff?style=flat-square&labelColor=161B22&color=4C8DFF)](https://github.com/Priyanshu-1622/skiff/stargazers)
 
-## Demo
+**[Website](https://skiffssh.me)** · **[Download the desktop app](https://skiffssh.me/download.html)** · [Quick start](#quick-start) · [Security model](#security-model--the-short-version) · [What it doesn't do](#what-skiff-doesnt-do)
 
-![Skiff demo](docs/demo.gif)
+</div>
 
-### Screenshots
+<br>
 
-![Empty state](docs/empty-state.png)
-*First-time setup — empty dashboard with import / add host CTAs.*
+A self-hosted SSH manager with an in-browser terminal. Sessions live on the
+server, not in the tab — close the browser, lose your wifi, move to a different
+machine, and you reattach exactly where you left off, scrollback and all. No
+tmux on the target host.
 
-![Add host dialog](docs/add-host.png)
-*Adding a host. Password or private key auth.*
+Encrypted credential vault, session recording, and a team mode where several
+people share one vault with their own logins and a full audit trail. Single
+binary + SQLite. No cloud, no telemetry, no account.
 
-![Import from ssh config](docs/import.png)
-*Paste your ~/.ssh/config and Skiff parses it.*
+## How it works
+
+<img src="docs/architecture.svg" alt="Skiff sits on your server. Browsers attach and detach; the SSH session stays alive in the Skiff process." width="900">
+
+Your browser is a viewer, not the session. It attaches over a websocket and
+detaches when you close it — the SSH connection stays open in the Skiff process
+on your server, holding scrollback, until you come back or the idle timer reaps
+it. Nothing is installed on the target hosts to make that work.
+
+## Deploy it
+
+![Deploying Skiff with docker compose](docs/deploy.gif)
 
 ## Why I built this
 
-I had a text file called `servers.md` with a growing list of SSH commands I kept copy-pasting into my terminal. Every time I added a new VPS or rotated a key I'd promise myself I'd "set up a proper tool", then I'd open Termius, see the sign-in screen, and close it again. I didn't want my SSH inventory in someone else's cloud — and the desktop alternatives are either paid or feel like they were designed in 2011.
+I had a text file called `servers.md` with a growing list of SSH commands I
+kept copy-pasting into my terminal. Every time I added a new VPS or rotated a
+key I'd promise myself I'd "set up a proper tool", then I'd open Termius, see
+the sign-in screen, and close it again. I didn't want my SSH inventory in
+someone else's cloud — and the desktop alternatives are either paid or feel
+like they were designed in 2011.
 
-So one weekend I figured how hard could it really be: encrypted SQLite + ssh2 + xterm.js. A couple of weeks later I had something I actually use every day. It's not finished — see "Known issues" for the rough edges — but it scratches the itch.
+So one weekend I figured how hard could it really be: encrypted SQLite + ssh2 +
+xterm.js. A couple of weeks later I had something I actually use every day.
+It's not finished — see "Known issues" for the rough edges — but it scratches
+the itch.
+
+The session persistence came later, and for a stupid reason: I kept losing
+long-running work when my laptop slept. A browser terminal that drops your
+session on every disconnect is worse than `ssh` in a terminal, not better. So
+the session moved to the server.
+
+## What makes it different
+
+Most self-hosted SSH managers are a nicer list of hosts. These are the parts
+that aren't:
+
+**Sessions survive the browser.** The SSH connection lives in the server
+process. Closing the tab, sleeping the laptop, or switching machines doesn't
+kill it — reopening the host reattaches you, with recent scrollback replayed.
+Idle sessions get cleaned up on a timer. Nothing is installed on the target
+host to make this work; no tmux, no screen, no agent.
+
+**Sessions are recordable.** Optionally record any terminal session to disk in
+the open [asciicast](https://docs.asciinema.org/manual/asciicast/v2/) format
+and replay it in the browser afterwards. On by default in team mode so admins
+can review what was actually done, off by default for personal use.
+
+**Team mode is one vault, many people.** A single shared encryption key, with
+each member holding their own copy sealed to their own password. Everyone can
+reach the hosts; every action is attributed to a specific person in the audit
+log. No external identity provider, no cloud.
+
+**It's actually self-hosted.** One `docker compose` command, SQLite, no
+external database. Your credentials never leave your machine and there is no
+telemetry. One caveat worth stating plainly: the recordings player is currently
+loaded from a public CDN, so that one page makes a third-party request. Nothing
+about your vault is sent — but it does mean Recordings won't render on an
+air-gapped install. Vendoring it is on the list.
 
 ## How it compares
 
 | | **Skiff** | Termius | Royal TSX | SecureCRT |
 |---|---|---|---|---|
-| Self-hosted | yes | no | no | no |
-| Open source | yes | no | no | no |
-| Price | free | freemium ($) | paid ($45+) | paid ($99+) |
-| Encryption at rest | yes | yes | yes | yes |
-| In-browser terminal | yes | no (native app) | no | no |
-| Mobile access | works on phone | iOS + Android apps | no | no |
+| Session survives disconnect | **yes, server-side** | no | no | no |
+| Session recording + replay | **built in** | paid tier | no | scripted only |
+| Self-hosted | **yes** | no | no | no |
+| Open source | **yes** | no | no | no |
+| Price | **free** | freemium ($) | paid ($45+) | paid ($99+) |
+| In-browser terminal | **yes** | no (native app) | no | no |
 | Cloud sync | optional / never | required for sync | local only | local only |
-| Telemetry | none | yes | unknown | unknown |
-| Docker deploy | one command | n/a | n/a | n/a |
+| Telemetry | **none** | yes | unknown | unknown |
+| Encryption at rest | yes | yes | yes | yes |
 | Team features | yes (self-hosted) | yes (paid) | yes | yes |
+| Docker deploy | one command | n/a | n/a | n/a |
 
-Skiff is for people who want to own their SSH inventory. Run it solo, or in team mode where a group shares one encrypted vault — each member with their own login and every action recorded in an audit log, all on your own server. If you need a polished mobile app or enterprise SSO today, Termius and Teleport are still ahead. Skiff is for the case where you specifically don't want your servers' credentials living in someone else's cloud.
+Skiff is for people who want to own their SSH inventory. If you need a polished
+mobile app or enterprise SSO today, Termius and Teleport are still ahead. Skiff
+is for the case where you specifically don't want your servers' credentials
+living in someone else's cloud — and you're tired of losing a session because a
+tab closed.
+
+## Prefer a desktop app?
+
+There's now a native desktop build — same engine, nothing to deploy. It adds
+SFTP file transfer, port forwarding and tunnels, jump hosts, and a
+hash-chained audit log you can verify in-app, none of which the server build
+has yet.
+
+**[Download for Windows and Linux → skiffssh.me](https://skiffssh.me/download.html)**
+
+macOS builds exist but aren't signed yet, so they're not published — see the
+download page for why.
+
+Source: [Priyanshu-1622/skiff-app](https://github.com/Priyanshu-1622/skiff-app), also AGPL-3.0.
+
+The server build in this repo is still maintained. Use it when you want the
+vault reachable from a browser, from more than one machine, or shared with a
+team. Use the desktop app when it's just you on one machine.
+
+### Screenshots
+
+<img src="docs/dashboard.png" alt="Skiff dashboard — hosts and folders" width="100%">
+
+<br>
+
+<img src="docs/terminal.png" alt="A live SSH session in the browser, reattached after the tab was closed" width="100%">
+
+<sub>Note the header: <b>Reattached</b>. That session was started in a different
+browser and the tab was closed — this is the same process, picked back up.</sub>
 
 ## Features
 
-- Encrypted credential vault. AES-256-GCM at rest, key derived from your master password with argon2id (OWASP params). The key lives in memory while you're unlocked and gets zeroed on lock or idle timeout. The password itself is never stored — only an HMAC verifier so we can tell you "wrong password" without having to decrypt anything.
-- In-browser terminal. xterm.js over a WebSocket. Real SSH session, no fake shell.
-- **Persistent sessions.** Your SSH session lives on the server, not in the browser tab. Close the tab, lose your wifi, switch devices — reopen the host and you're reattached exactly where you left off, with recent scrollback replayed. Idle sessions are cleaned up automatically. No tmux required on the target host.
-- **Session recording & playback.** Optionally record every terminal session to disk in the open [asciicast](https://docs.asciinema.org/manual/asciicast/v2/) format and replay it later from the Recordings page. On by default in team mode (admins can review any member's sessions), off by default for personal use. Toggle it in Settings.
+- **Persistent sessions.** Your SSH session lives on the server, not in the
+  browser tab. Close the tab, lose your wifi, switch devices — reopen the host
+  and you're reattached exactly where you left off, with recent scrollback
+  replayed. Idle sessions are cleaned up automatically. No tmux required on the
+  target host.
+- **Session recording & playback.** Optionally record every terminal session to
+  disk in the open [asciicast](https://docs.asciinema.org/manual/asciicast/v2/)
+  format and replay it later from the Recordings page. On by default in team
+  mode (admins can review any member's sessions), off by default for personal
+  use. Toggle it in Settings.
+- **Encrypted credential vault.** AES-256-GCM at rest, key derived from your
+  master password with argon2id (OWASP params). The key lives in memory while
+  you're unlocked and gets zeroed on lock or idle timeout. The password itself
+  is never stored — only an HMAC verifier so we can tell you "wrong password"
+  without having to decrypt anything.
+- **In-browser terminal.** xterm.js over a WebSocket. Real SSH session, no fake
+  shell.
+- **Team mode (optional).** Run the vault for a group instead of one person.
+  Multiple user accounts, each with their own login, sharing one encrypted
+  vault. Admins add members, reset passwords, and disable accounts; every
+  privileged action — logins, connections, host changes — is recorded in an
+  audit log. A personal vault can be upgraded to a team vault in place without
+  touching your existing hosts. Fully self-hosted; no cloud, no external
+  identity provider.
 - Folders, favorites, search. Search hits labels, hostnames, and usernames.
-- Imports your `~/.ssh/config`. Parses `Host`, `HostName`, `Port`, `User`, `IdentityFile`. Doesn't handle `Include` directives yet (see Known issues).
-- Dark / light themes. Persists in localStorage.
-- SSH host fingerprint pinning. First connect saves it; mismatches block the connection.
+- Imports your `~/.ssh/config`. Parses `Host`, `HostName`, `Port`, `User`,
+  `IdentityFile`. Doesn't handle `Include` directives yet (see Known issues).
+- SSH host fingerprint pinning. First connect saves it; mismatches block the
+  connection.
 - Auto-lock on idle. Configurable, defaults to 15 minutes.
-- **Team mode (optional).** Run the vault for a group instead of one person. Multiple user accounts, each with their own login, sharing one encrypted vault. Admins add members, reset passwords, and disable accounts; every privileged action — logins, connections, host changes — is recorded in an audit log. A personal vault can be upgraded to a team vault in place without touching your existing hosts. Fully self-hosted; no cloud, no external identity provider.
-- Single docker compose command to deploy. SQLite, so no separate database to run.
+- Dark / light themes.
+- Single `docker compose` command to deploy. SQLite, so no separate database to
+  run.
 
 ## Team mode
 
@@ -107,7 +218,9 @@ docker compose up -d --build
 
 Then http://localhost:8080. Back up `./data/` — that's where the encrypted vault lives.
 
-## Project structure
+<details>
+<summary><b>Project structure</b></summary>
+
 
 ```
 skiff/
@@ -128,13 +241,15 @@ skiff/
 │       └── server.ts
 ├── packages/
 │   └── shared/                 Types shared between web and api
-├── docs/                       Demo gif + screenshots
+├── docs/                       Diagram, deploy gif, screenshots
 ├── Dockerfile                  Multi-stage production build
 ├── docker-compose.yml          One-command production deploy
 └── .env.example                All configurable env vars
 ```
 
 It's a pnpm workspace with two apps and one shared types package. The frontend and backend are decoupled — the web app talks to the API over HTTP + WebSocket, no direct imports between them.
+
+</details>
 
 ## Known issues / rough edges
 
@@ -145,6 +260,10 @@ These are real things I've noticed using Skiff. Some are easy fixes I haven't go
 - **Restore is fresh-instance only.** Settings - Backup downloads an encrypted JSON, and a fresh instance can restore it from the setup screen ("Restore from a backup file"). You can't restore *over* an existing vault though — you'd have to start from a clean `data/` directory. Good enough for moving between machines; not an in-place "undo".
 - **Terminal resize is occasionally laggy.** xterm.js sends the new dimensions on resize, but during the resize gesture the output can wrap weirdly for a few frames. Stops looking broken once you let go.
 - **The `.sqlite-shm` and `.sqlite-wal` files.** SQLite in WAL mode creates two sidecar files next to the main DB. They're normal — do **not** delete them while Skiff is running. You'll corrupt the database. Ask me how I know.
+- **The recordings player comes from a CDN.** The asciinema player JS and CSS
+  are pulled from jsDelivr when you open the Recordings page, rather than being
+  bundled. No data leaves your instance, but the request does, and the page
+  won't work fully offline. Being vendored into the build.
 - **First-time docker build is slow.** Native modules (better-sqlite3, argon2) compile from source the first time, which can take 3-5 minutes on a small VPS. After that it's cached.
 
 ## What Skiff doesn't do
@@ -196,7 +315,9 @@ Full version: [SECURITY.md](./SECURITY.md).
 | `SKIFF_PORT` | `8080` | API port |
 | `SKIFF_DB_PATH` | `./data/skiff.sqlite` | Where the vault lives |
 
-## Troubleshooting
+<details>
+<summary><b>Troubleshooting</b></summary>
+
 
 ### Windows: `better-sqlite3` won't compile
 
@@ -205,6 +326,8 @@ You need Visual Studio Build Tools with "Desktop development with C++". The stan
 ### Port 8080 is already in use
 
 Set `SKIFF_PORT=3000` (or whatever) in `.env`. The Vite dev server's proxy follows it automatically.
+
+</details>
 
 ## Contributing
 
@@ -220,4 +343,4 @@ AGPL-3.0. You can run it, modify it, host it. If you run a modified version as a
 
 ---
 
-Built by Priyanshu. Bug reports and PRs welcome.
+Built by Priyanshu — [skiffssh.me](https://skiffssh.me). Bug reports and PRs welcome.
