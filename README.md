@@ -1,34 +1,48 @@
-<div align="center">
+<p align="center">
+<img src="docs/hero.svg" alt="Two browsers come and go; one unbroken SSH session lives inside Skiff" width="900">
+</p>
 
-<img src="docs/banner.svg" alt="Skiff — your SSH session doesn't die with the browser tab" width="820">
+<p align="center">
+<img src="docs/banner.svg" alt="Skiff" width="420">
+</p>
 
-<br><br>
+<p align="center">
+<a href="https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/Priyanshu-1622/skiff/ci.yml?style=for-the-badge&label=BUILD&color=4c8dff"></a>
+&nbsp;
+<a href="https://github.com/Priyanshu-1622/skiff/releases"><img alt="Version" src="https://img.shields.io/github/package-json/v/Priyanshu-1622/skiff?style=for-the-badge&label=VERSION&color=4c8dff"></a>
+&nbsp;
+<a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/LICENSE-AGPL--3.0-4c8dff?style=for-the-badge"></a>
+&nbsp;
+<a href="#what-makes-it-different"><img alt="Telemetry" src="https://img.shields.io/badge/TELEMETRY-NONE-3fb950?style=for-the-badge"></a>
+&nbsp;
+<a href="https://skiffssh.me"><img alt="Website" src="https://img.shields.io/badge/-SKIFFSSH.ME-fa5?style=for-the-badge&logo=gitbook&logoColor=white&color=26a"></a>
+</p>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Priyanshu-1622/skiff/ci.yml?style=flat-square&label=build)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/github/package-json/v/Priyanshu-1622/skiff?style=flat-square&label=version)](https://github.com/Priyanshu-1622/skiff/releases)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520-blue?style=flat-square)](https://nodejs.org)
-[![Docker](https://img.shields.io/badge/docker-compose-blue?style=flat-square&logo=docker&logoColor=white)](#docker)
-[![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen?style=flat-square)](#what-makes-it-different)
-[![Last commit](https://img.shields.io/github/last-commit/Priyanshu-1622/skiff?style=flat-square)](https://github.com/Priyanshu-1622/skiff/commits/main)
-[![Stars](https://img.shields.io/github/stars/Priyanshu-1622/skiff?style=flat-square)](https://github.com/Priyanshu-1622/skiff/stargazers)
+---
 
-<br>
+Skiff is a self-hosted SSH manager with an in-browser terminal, where the
+session lives on the server instead of in the browser tab.
 
-**[Website](https://skiffssh.me)** · **[Download the desktop app](https://skiffssh.me/download.html)** · [Quick start](#quick-start) · [Security model](#security-model--the-short-version) · [What it doesn't do](#what-skiff-doesnt-do)
+* **Close the tab and come back.** Sessions survive disconnects, sleeping
+  laptops and switching machines — reopen the host and you reattach exactly
+  where you left off, with scrollback replayed. No tmux on the target.
+* **Record and replay sessions.** Every terminal session can be written to disk
+  in the open asciicast format and replayed in the browser afterwards.
+* **One vault, many people.** Team mode gives everyone their own login over a
+  single shared encrypted vault, with every action attributed in an audit log.
+* **Credentials stay yours.** AES-256-GCM at rest, key derived with argon2id,
+  unlocked by your master password and zeroed on idle.
+* **Nothing to sign up for.** No account, no cloud, no telemetry, and the
+  target hosts need no agent, no tmux and no config changes.
+* **One `docker compose` command.** SQLite, no external database, single
+  container.
+* Imports your existing `~/.ssh/config`, pins host fingerprints, and there's a
+  [desktop app](https://skiffssh.me/download.html) if you'd rather not run a
+  server at all.
 
-</div>
-
-<br>
-
-A self-hosted SSH manager with an in-browser terminal. Sessions live on the
-server, not in the tab — close the browser, lose your wifi, move to a different
-machine, and you reattach exactly where you left off, scrollback and all. No
-tmux on the target host.
-
-Encrypted credential vault, session recording, and a team mode where several
-people share one vault with their own logins and a full audit trail. Single
-binary + SQLite. No cloud, no telemetry, no account.
+<p align="center">
+<b><a href="https://skiffssh.me">Website</a></b> · <b><a href="https://skiffssh.me/download.html">Download the desktop app</a></b> · <a href="#quick-start">Quick start</a> · <a href="#security-model--the-short-version">Security model</a> · <a href="#what-skiff-doesnt-do">What it doesn't do</a>
+</p>
 
 ## How it works
 
@@ -163,16 +177,19 @@ The server build in this repo is still maintained. Use it when you want the
 vault reachable from a browser, from more than one machine, or shared with a
 team. Use the desktop app when it's just you on one machine.
 
-### Screenshots
+### What it looks like
 
-<img src="docs/dashboard.png" alt="Skiff dashboard — hosts and folders" width="100%">
+<img src="docs/dashboard.png" alt="Skiff — hosts and folders" width="100%">
 
 <br>
 
-<img src="docs/terminal.png" alt="A live SSH session in the browser, reattached after the tab was closed" width="100%">
+### The session that outlived its tab
 
-<sub>Note the header: <b>Reattached</b>. That session was started in a different
-browser and the tab was closed — this is the same process, picked back up.</sub>
+<img src="docs/terminal.png" alt="A live SSH session reattached after the browser tab was closed" width="100%">
+
+<sub>Look at the header: <b>Reattached</b>. That session was opened in a
+different browser and the tab was closed — this is the same process on the
+same host, picked back up where it was.</sub>
 
 ## Features
 
