@@ -1,9 +1,5 @@
 <p align="center">
-<img src="docs/hero.svg" alt="Two browsers come and go; one unbroken SSH session lives inside Skiff" width="900">
-</p>
-
-<p align="center">
-<img src="docs/banner.svg" alt="Skiff" width="420">
+<img src="docs/banner.svg" alt="Skiff — your SSH session doesn't die with the browser tab" width="900">
 </p>
 
 <p align="center">
@@ -177,13 +173,13 @@ The server build in this repo is still maintained. Use it when you want the
 vault reachable from a browser, from more than one machine, or shared with a
 team. Use the desktop app when it's just you on one machine.
 
-### What it looks like
+### Screenshots
 
 <img src="docs/dashboard.png" alt="Skiff — hosts and folders" width="100%">
 
 <br>
 
-### The session that outlived its tab
+#### The session that outlived its tab
 
 <img src="docs/terminal.png" alt="A live SSH session reattached after the browser tab was closed" width="100%">
 
