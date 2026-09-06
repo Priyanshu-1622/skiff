@@ -1,14 +1,13 @@
 <div align="center">
 
-<img src="docs/banner.svg" alt="Skiff — your SSH session doesn't die with the browser tab" width="880">
+<img src="docs/banner.svg" alt="Skiff — your SSH session doesn't die with the browser tab" width="820">
 
 <br>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Priyanshu-1622/skiff/ci.yml?style=flat-square&labelColor=161B22&color=4C8DFF&label=build)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-4C8DFF?style=flat-square&labelColor=161B22)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520-4C8DFF?style=flat-square&labelColor=161B22)](https://nodejs.org)
-[![Docker](https://img.shields.io/badge/docker-one%20command-4C8DFF?style=flat-square&labelColor=161B22)](#docker)
-[![Stars](https://img.shields.io/github/stars/Priyanshu-1622/skiff?style=flat-square&labelColor=161B22&color=4C8DFF)](https://github.com/Priyanshu-1622/skiff/stargazers)
+[![CI](https://img.shields.io/github/actions/workflow/status/Priyanshu-1622/skiff/ci.yml?style=flat-square&label=build)](https://github.com/Priyanshu-1622/skiff/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-blue?style=flat-square)](https://nodejs.org)
+[![Stars](https://img.shields.io/github/stars/Priyanshu-1622/skiff?style=flat-square)](https://github.com/Priyanshu-1622/skiff/stargazers)
 
 **[Website](https://skiffssh.me)** · **[Download the desktop app](https://skiffssh.me/download.html)** · [Quick start](#quick-start) · [Security model](#security-model--the-short-version) · [What it doesn't do](#what-skiff-doesnt-do)
 
@@ -34,9 +33,42 @@ detaches when you close it — the SSH connection stays open in the Skiff proces
 on your server, holding scrollback, until you come back or the idle timer reaps
 it. Nothing is installed on the target hosts to make that work.
 
-## Deploy it
+## Quick start
 
 ![Deploying Skiff with docker compose](docs/deploy.gif)
+
+### Docker
+
+```bash
+cp .env.example .env
+# set SKIFF_COOKIE_SECRET=$(openssl rand -hex 32) in .env
+
+# Create the data directory as your own user BEFORE starting.
+# If you skip this, Docker creates it as root and the container
+# (which runs as the unprivileged node user) can't write the database.
+mkdir -p data
+
+docker compose up -d --build
+```
+
+Then http://localhost:8080. Back up `./data/` — that's where the encrypted vault lives.
+
+By default it binds to `127.0.0.1` only, so it isn't reachable from the network
+before you've set a master password. Set `HOST_ADDR=0.0.0.0` in `.env` and put
+it behind a reverse proxy with TLS when you're ready to expose it.
+
+### Dev
+
+```bash
+git clone https://github.com/Priyanshu-1622/skiff.git
+cd skiff
+pnpm install
+pnpm dev
+```
+
+Then http://localhost:5173. First load asks you to set a master password — that's the vault.
+
+Requires Node 20+ and pnpm 9+. On Windows you'll need Visual Studio Build Tools because `better-sqlite3` and `argon2` are native. There's a note in Troubleshooting about this.
 
 ## Why I built this
 
@@ -186,37 +218,6 @@ In team mode there's still exactly one encrypted vault, but multiple people have
 Choose the mode at first-run setup, or upgrade an existing personal vault from **Settings → Team**. The upgrade keeps all your hosts and credentials exactly as they are — your existing vault key simply becomes the shared key, so nothing is re-encrypted. The upgrade is one-way.
 
 What team mode is **not**: it's not full role-based access control. Every member can see and connect to every host in the shared vault — there are no per-host or per-folder permissions, and no read-only role. If you need granular RBAC for a larger organization, that's out of scope for the open-source project.
-
-## Quick start
-
-### Dev
-
-```bash
-git clone https://github.com/Priyanshu-1622/skiff.git
-cd skiff
-pnpm install
-pnpm dev
-```
-
-Then http://localhost:5173. First load asks you to set a master password — that's the vault.
-
-Requires Node 20+ and pnpm 9+. On Windows you'll need Visual Studio Build Tools because `better-sqlite3` and `argon2` are native. There's a note in Troubleshooting about this.
-
-### Docker
-
-```bash
-cp .env.example .env
-# set SKIFF_COOKIE_SECRET=$(openssl rand -hex 32) in .env
-
-# Create the data directory as your own user BEFORE starting.
-# If you skip this, Docker creates it as root and the container
-# (which runs as the unprivileged node user) can't write the database.
-mkdir -p data
-
-docker compose up -d --build
-```
-
-Then http://localhost:8080. Back up `./data/` — that's where the encrypted vault lives.
 
 <details>
 <summary><b>Project structure</b></summary>
