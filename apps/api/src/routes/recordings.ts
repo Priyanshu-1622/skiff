@@ -4,7 +4,7 @@ import { stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { SessionStore } from "../crypto/session-store.js";
 import type { SessionManager } from "../lib/session-manager.js";
-import { requireUnlocked } from "../lib/auth-middleware.js";
+import { requireUnlocked, requireVaultOwner } from "../lib/auth-middleware.js";
 import { writeAudit } from "../lib/audit.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
@@ -19,11 +19,13 @@ export interface RecordingsRouteDeps {
  * Access model for recordings:
  *   - Personal mode: single user, all recordings are visible.
  *   - Team mode: a member sees only their own recordings; an admin sees all.
+ *     Only admins can delete recordings.
  * This mirrors the audit-log visibility rules.
  */
 export const recordingsRoutes: (deps: RecordingsRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
     const auth = requireUnlocked(deps.sessionStore);
+    const ownerOnly = requireVaultOwner(deps.sessionStore, app.skiffDb.raw);
     const recordingsDir = join(deps.dataDir, "recordings");
 
     const isTeam = (): boolean => {
@@ -95,7 +97,9 @@ export const recordingsRoutes: (deps: RecordingsRouteDeps) => FastifyPluginAsync
     });
 
     // ── Delete a recording (row + file) ───────────────────────
-    app.delete("/api/recordings/:id", { preHandler: auth }, async (req, reply) => {
+    // Deleting is admin-only in team mode: recordings exist so admins can
+    // review what members did, so a member must not be able to erase their own.
+    app.delete("/api/recordings/:id", { preHandler: ownerOnly }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const db = app.skiffDb.raw;
       const rec = getAccessibleRecording(req, id);

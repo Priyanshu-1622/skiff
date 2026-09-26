@@ -31,6 +31,7 @@ const TEST_CONFIG = {
   nodeEnv: "test" as const,
   trustedOrigins: [],
   cookieSecret: "test-cookie-secret-at-least-32-chars-long-xxxxxxxxxx",
+  setupToken: null, // setup-token gate has its own tests
 };
 
 /** In-memory SQLite with schema + the real runtime column migrations applied. */
@@ -356,6 +357,97 @@ test("personal -> team upgrade preserves hosts and creates admin", async () => {
       payload: { username: "owner", password: "my-master-password" },
     });
     assert.equal(login.statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test("non-admin cannot change vault-wide settings, export the vault, or delete recordings", async () => {
+  const app = await buildApp({ config: TEST_CONFIG, db: memDb() });
+  try {
+    const setup = await app.inject({
+      method: "POST", url: "/api/vault/setup",
+      payload: { password: "admin-password-1", mode: "team", username: "admin" },
+    });
+    const adminCookie = cookieFrom(setup);
+    await app.inject({
+      method: "POST", url: "/api/team/users", headers: { cookie: adminCookie },
+      payload: { username: "bob", tempPassword: "bob-temp-password", isAdmin: false },
+    });
+    const login = await app.inject({
+      method: "POST", url: "/api/team/login",
+      payload: { username: "bob", password: "bob-temp-password" },
+    });
+    const bobCookie = cookieFrom(login);
+
+    const asBob = [
+      { method: "PUT" as const, url: "/api/settings/recording", payload: { enabled: false } },
+      { method: "PUT" as const, url: "/api/settings/idle-timeout", payload: { minutes: 1440 } },
+      { method: "GET" as const, url: "/api/settings/backup" },
+      { method: "DELETE" as const, url: "/api/recordings/rec_whatever" },
+    ];
+    for (const r of asBob) {
+      const res = await app.inject({ ...r, headers: { cookie: bobCookie } });
+      assert.equal(res.statusCode, 403, `${r.method} ${r.url} should be admin-only`);
+    }
+
+    // Recording is still on (team default) — bob's attempt changed nothing.
+    const status = await app.inject({ method: "GET", url: "/api/vault/status", headers: { cookie: adminCookie } });
+    assert.equal((status.json() as any).data.recordingEnabled, true);
+
+    // The admin can, and it is audited.
+    const off = await app.inject({
+      method: "PUT", url: "/api/settings/recording", headers: { cookie: adminCookie },
+      payload: { enabled: false },
+    });
+    assert.equal(off.statusCode, 200);
+    const backup = await app.inject({ method: "GET", url: "/api/settings/backup", headers: { cookie: adminCookie } });
+    assert.equal(backup.statusCode, 200);
+
+    const audit = await app.inject({ method: "GET", url: "/api/team/audit", headers: { cookie: adminCookie } });
+    const actions = ((audit.json() as any).data as any[]).map((e) => e.action);
+    assert.ok(actions.includes("settings.recording_off"));
+    assert.ok(actions.includes("vault.backup"));
+  } finally {
+    await app.close();
+  }
+});
+
+test("locking the vault while an admin is adding a member can't corrupt the member's key", async () => {
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  try {
+    const setup = await app.inject({
+      method: "POST", url: "/api/vault/setup",
+      payload: { password: "admin-password-1", mode: "team", username: "admin" },
+    });
+    const admin = cookieFrom(setup);
+    await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie: admin },
+      payload: { label: "h", hostname: "10.0.0.1", username: "u", authMethod: "password", credential: { kind: "password", value: "ssh-secret" } },
+    });
+
+    // Adding a user spends ~100 ms in argon2 while holding the session's key.
+    // Lock the same session in the middle of that.
+    const create = app.inject({
+      method: "POST", url: "/api/team/users", headers: { cookie: admin },
+      payload: { username: "bob", tempPassword: "bob-temp-password" },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    await app.inject({ method: "POST", url: "/api/vault/lock", headers: { cookie: admin } });
+    assert.equal((await create).statusCode, 200);
+
+    // Bob's sealed copy must be the real shared key: it has to decrypt the credential.
+    const { unlockSharedKey } = await import("../crypto/team-vault.js");
+    const { decrypt } = await import("../crypto/vault.js");
+    const u = db.raw.prepare("SELECT * FROM users WHERE username = 'bob'").get() as any;
+    const key = await unlockSharedKey(
+      "bob-temp-password",
+      { algorithm: "argon2id", salt: u.kdf_salt, iterations: u.kdf_iterations, memoryKib: u.kdf_memory_kib, parallelism: u.kdf_parallelism },
+      u.verifier, u.shared_key_blob, u.shared_key_nonce,
+    );
+    const cred = db.raw.prepare("SELECT * FROM credentials").get() as any;
+    assert.equal(decrypt(cred.encrypted_blob, cred.nonce, key!), "ssh-secret");
   } finally {
     await app.close();
   }

@@ -8,16 +8,19 @@
  * mode — they just call req.vaultKey.
  */
 
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { SessionStore } from "../crypto/session-store.js";
+import { type SessionManager, ownerKeyFor } from "../lib/session-manager.js";
 import type { Config } from "../config.js";
-import { sessionCookieOptions } from "../lib/cookie.js";
+import { sessionCookieOptions, cookieWouldBeDropped, INSECURE_TRANSPORT_MESSAGE } from "../lib/cookie.js";
 import { requireUnlocked, requireAdmin } from "../lib/auth-middleware.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 import { generateId } from "../lib/id.js";
 import { writeAudit } from "../lib/audit.js";
+import type { AttemptLimiter } from "../lib/attempt-limiter.js";
+import { deriveVaultKey, generateKdfParams } from "../crypto/vault.js";
 import {
   provisionUser,
   unlockSharedKey,
@@ -25,8 +28,24 @@ import {
 
 export interface TeamRouteDeps {
   sessionStore: SessionStore;
+  sessionManager: SessionManager;
   config: Config;
+  attemptLimiter: AttemptLimiter;
 }
+
+function tooManyAttempts(reply: FastifyReply, waitMs: number) {
+  const seconds = Math.ceil(waitMs / 1000);
+  reply.header("Retry-After", String(seconds));
+  return reply.code(429).send(err(
+    ApiErrorCode.RATE_LIMITED,
+    `Too many wrong passwords from this device. Try again in ${seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)} min`}.`,
+  ));
+}
+
+// Unknown and disabled usernames still pay for one argon2 derivation, so the
+// response time doesn't reveal which usernames exist.
+const DUMMY_KDF = generateKdfParams();
+
 
 const LoginBody = z.object({
   username: z.string().min(1).max(64),
@@ -53,7 +72,7 @@ function getMode(db: any): string {
 
 export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
-    const { sessionStore, config } = deps;
+    const { sessionStore, sessionManager, config, attemptLimiter } = deps;
     const adminOnly = requireAdmin(sessionStore);
     const loggedIn = requireUnlocked(sessionStore);
 
@@ -68,32 +87,31 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
 
         const body = LoginBody.parse(req.body);
 
-        // Per-username lockout: 5 fails in 5 minutes
-        const recentFails = db
-          .prepare(
-            "SELECT COUNT(*) as cnt FROM login_attempts WHERE username = ? AND succeeded = 0 AND attempted_at > datetime('now','-5 minutes')"
-          )
-          .get(body.username) as { cnt: number };
-        if (recentFails.cnt >= 5) {
-          return reply.code(429).send(err(ApiErrorCode.RATE_LIMITED, "Too many attempts. Try later."));
+        // Backoff per client, not per username: keying on the username would
+        // let anyone lock a colleague out just by typing their name wrong.
+        if (cookieWouldBeDropped(req, config)) {
+          return reply.code(400).send(err(ApiErrorCode.INSECURE_TRANSPORT, INSECURE_TRANSPORT_MESSAGE));
         }
+        const limiterKey = `login:${req.ip}`;
+        const waitMs = attemptLimiter.retryAfterMs(limiterKey);
+        if (waitMs > 0) return tooManyAttempts(reply, waitMs);
 
         const user = db
           .prepare("SELECT * FROM users WHERE username = ?")
           .get(body.username) as any;
 
-        const logAttempt = (ok0: boolean) => {
-          db.prepare(
-            "INSERT INTO login_attempts (username, attempted_at, succeeded) VALUES (?, datetime('now'), ?)"
-          ).run(body.username, ok0 ? 1 : 0);
-          db.prepare("DELETE FROM login_attempts WHERE attempted_at < datetime('now','-1 day')").run();
+        const fail = () => {
+          attemptLimiter.recordFailure(limiterKey);
+          writeAudit(db, {
+            action: "login.failed", resourceType: "user", resourceId: user?.id,
+            detail: { username: body.username }, ip: req.ip,
+          });
+          return reply.code(401).send(err(ApiErrorCode.INVALID_PASSWORD, "Invalid credentials"));
         };
 
-        // Run unseal even if user is missing? No — but avoid leaking which
-        // usernames exist via timing is out of scope; we just deny.
         if (!user || user.disabled) {
-          logAttempt(false);
-          return reply.code(401).send(err(ApiErrorCode.INVALID_PASSWORD, "Invalid credentials"));
+          (await deriveVaultKey(body.password, DUMMY_KDF)).fill(0);
+          return fail();
         }
 
         const sharedKey = await unlockSharedKey(
@@ -110,14 +128,8 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
           user.shared_key_nonce,
         );
 
-        if (!sharedKey) {
-          logAttempt(false);
-          return reply.code(401).send(err(ApiErrorCode.INVALID_PASSWORD, "Invalid credentials"));
-        }
-
-        logAttempt(true);
-        // Clear this user's failed attempts so a success resets the lockout.
-        db.prepare("DELETE FROM login_attempts WHERE username = ? AND succeeded = 0").run(body.username);
+        if (!sharedKey) return fail();
+        attemptLimiter.recordSuccess(limiterKey);
         const sessionUser = {
           id: user.id,
           username: user.username,
@@ -128,7 +140,10 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
         reply.setCookie("skiff_session", sessionId, sessionCookieOptions(config));
         writeAudit(db, { user: sessionUser, action: "login", ip: req.ip });
         return ok({
-          user: { id: user.id, username: user.username, displayName: user.display_name, isAdmin: sessionUser.isAdmin },
+          user: {
+            id: user.id, username: user.username, displayName: user.display_name,
+            isAdmin: sessionUser.isAdmin, mustChangePassword: user.must_change_password === 1,
+          },
         });
       },
     });
@@ -139,6 +154,58 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
         return reply.code(400).send(err(ApiErrorCode.WRONG_MODE, "Not a team session"));
       }
       return ok({ user: req.sessionUser });
+    });
+
+    // ── Change my own password ───────────────────────────────────
+    // Members get a temporary password from an admin; this is how they replace
+    // it (and change it later). Re-seals the shared key to the new password —
+    // no credential is re-encrypted, and nobody else is affected.
+    app.post("/api/team/me/password", { preHandler: loggedIn }, async (req, reply) => {
+      const me = req.sessionUser;
+      if (!me) return reply.code(400).send(err(ApiErrorCode.WRONG_MODE, "Not a team session"));
+      const body = z.object({
+        currentPassword: z.string().min(1).max(256),
+        newPassword: z.string().min(8).max(256),
+      }).parse(req.body);
+      if (body.newPassword === body.currentPassword) {
+        return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, "The new password must be different."));
+      }
+
+      // Same guessing protection as sign-in: a stolen, unlocked browser must
+      // not become a way to brute-force the member's real password.
+      const limiterKey = `pwchange:${me.id}`;
+      const waitMs = attemptLimiter.retryAfterMs(limiterKey);
+      if (waitMs > 0) return tooManyAttempts(reply, waitMs);
+
+      const db = app.skiffDb.raw;
+      const row = db.prepare("SELECT * FROM users WHERE id = ?").get(me.id) as any;
+      if (!row || row.disabled) return reply.code(403).send(err(ApiErrorCode.FORBIDDEN, "Account disabled"));
+
+      const sharedKey = await unlockSharedKey(
+        body.currentPassword,
+        { algorithm: "argon2id", salt: row.kdf_salt, iterations: row.kdf_iterations, memoryKib: row.kdf_memory_kib, parallelism: row.kdf_parallelism },
+        row.verifier, row.shared_key_blob, row.shared_key_nonce,
+      );
+      if (!sharedKey) {
+        attemptLimiter.recordFailure(limiterKey);
+        return reply.code(401).send(err(ApiErrorCode.INVALID_PASSWORD, "Current password is wrong"));
+      }
+      attemptLimiter.recordSuccess(limiterKey);
+
+      const provisioned = await provisionUser(body.newPassword, sharedKey);
+      sharedKey.fill(0);
+      db.prepare(
+        `UPDATE users SET kdf_salt=?, kdf_iterations=?, kdf_memory_kib=?, kdf_parallelism=?, verifier=?, shared_key_blob=?, shared_key_nonce=?, must_change_password=0 WHERE id=?`
+      ).run(
+        provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
+        provisioned.verifier, provisioned.sharedKeyBlob, provisioned.sharedKeyNonce, me.id,
+      );
+
+      // Sign out this member's other browsers (the password they used is no
+      // longer valid) but keep this one, and leave their SSH sessions running.
+      sessionStore.destroyUserSessions(me.id, req.sessionId);
+      writeAudit(db, { user: me, action: "user.password_change", resourceType: "user", resourceId: me.id, ip: req.ip });
+      return ok({ changed: true });
     });
 
     // ── List users (admin) ───────────────────────────────────────
@@ -174,8 +241,8 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
       const id = generateId("usr");
       try {
         db.prepare(
-          `INSERT INTO users (id, username, display_name, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, shared_key_blob, shared_key_nonce, is_admin, disabled, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+          `INSERT INTO users (id, username, display_name, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, shared_key_blob, shared_key_nonce, is_admin, disabled, must_change_password, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?)`
         ).run(
           id, body.username, body.displayName ?? null,
           provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
@@ -214,13 +281,17 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
 
       const provisioned = await provisionUser(body.tempPassword, req.vaultKey);
       db.prepare(
-        `UPDATE users SET kdf_salt=?, kdf_iterations=?, kdf_memory_kib=?, kdf_parallelism=?, verifier=?, shared_key_blob=?, shared_key_nonce=? WHERE id=?`
+        `UPDATE users SET kdf_salt=?, kdf_iterations=?, kdf_memory_kib=?, kdf_parallelism=?, verifier=?, shared_key_blob=?, shared_key_nonce=?, must_change_password=1 WHERE id=?`
       ).run(
         provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
         provisioned.verifier, provisioned.sharedKeyBlob, provisioned.sharedKeyNonce, body.userId,
       );
 
-      // Force re-login everywhere for that user.
+      // Cut any SSH session they have open — a reset usually means the account
+      // may be compromised — then force re-login everywhere. Sessions first:
+      // ending the logins first would detach their terminals with "your session
+      // is still running", which is exactly what is not true here.
+      sessionManager.endByOwner(ownerKeyFor({ id: body.userId, username: target.username, isAdmin: false }), "Your password was reset by an admin");
       sessionStore.destroyUserSessions(body.userId);
 
       writeAudit(db, {
@@ -249,7 +320,11 @@ export const teamRoutes: (deps: TeamRouteDeps) => FastifyPluginAsync =
       }
 
       db.prepare("UPDATE users SET disabled = ? WHERE id = ?").run(disabled ? 1 : 0, id);
-      if (disabled) sessionStore.destroyUserSessions(id);
+      if (disabled) {
+        // Sessions before logins — see the reprovision route for why.
+        sessionManager.endByOwner(ownerKeyFor({ id, username: target.username, isAdmin: false }), "Your account was disabled");
+        sessionStore.destroyUserSessions(id);
+      }
 
       writeAudit(db, {
         user: req.sessionUser, action: disabled ? "user.disable" : "user.enable",

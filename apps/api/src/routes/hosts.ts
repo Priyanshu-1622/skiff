@@ -1,10 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
+// ssh2 is CommonJS: Node can't see `utils` as a named ESM export (the import
+// typechecks but throws at startup), so take it off the default export.
+import ssh2 from "ssh2";
+const sshUtils = ssh2.utils;
 import { z } from "zod";
 import { ok, err } from "../lib/response.js";
 import { generateId } from "../lib/id.js";
 import { encrypt, decrypt } from "../crypto/vault.js";
 import type { SessionStore } from "../crypto/session-store.js";
-import { requireUnlocked } from "../lib/auth-middleware.js";
+import { requireUnlocked, requireVaultOwner } from "../lib/auth-middleware.js";
 import { writeAudit } from "../lib/audit.js";
 import { ApiErrorCode } from "@skiff/shared";
 
@@ -29,6 +33,39 @@ const FolderInput = z.object({
   parentId: z.string().nullable().default(null),
 });
 
+type CredentialInput = NonNullable<z.infer<typeof HostInput>["credential"]>;
+
+/**
+ * Check a credential before storing it, and settle its kind from what it is
+ * rather than from which tab the form was on. A private key that can't be
+ * parsed — or an encrypted one saved without its passphrase — used to be
+ * accepted and only fail later, at connect time, with an ssh2 error.
+ * Returns an error message, or the normalised credential.
+ */
+function checkCredential(c: CredentialInput): { error: string } | { cred: CredentialInput } {
+  if (c.kind === "password") return { cred: { kind: "password", value: c.value } };
+
+  const passphrase = c.passphrase || undefined;
+  const parsed = sshUtils.parseKey(c.value.trim(), passphrase);
+  const key = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (!key || key instanceof Error) {
+    const msg = key instanceof Error ? key.message : "";
+    if (/passphrase/i.test(msg) && !passphrase) {
+      return { error: "This private key is encrypted. Enter its passphrase too." };
+    }
+    if (/passphrase|decrypt/i.test(msg)) {
+      return { error: "That passphrase doesn't unlock this private key." };
+    }
+    return { error: "That doesn't look like a private key. Paste the whole file, including the BEGIN and END lines." };
+  }
+  if (typeof key.isPrivateKey === "function" && !key.isPrivateKey()) {
+    return { error: "That's a public key. Paste the private key (the file without .pub)." };
+  }
+  return passphrase
+    ? { cred: { kind: "key+passphrase", value: c.value.trim(), passphrase } }
+    : { cred: { kind: "key", value: c.value.trim() } };
+}
+
 export interface HostRouteDeps {
   sessionStore: SessionStore;
 }
@@ -36,6 +73,28 @@ export interface HostRouteDeps {
 export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
     const auth = requireUnlocked(deps.sessionStore);
+    const ownerOnly = requireVaultOwner(deps.sessionStore, app.skiffDb.raw);
+
+    const folderExists = (id: string | null) =>
+      id === null || !!app.skiffDb.raw.prepare("SELECT 1 FROM folders WHERE id = ?").get(id);
+
+    /** Would making `parentId` the parent of `id` create a loop? */
+    const wouldCycle = (id: string, parentId: string | null): boolean => {
+      const db = app.skiffDb.raw;
+      for (let cur = parentId, hops = 0; cur; hops++) {
+        if (cur === id || hops > 1000) return true;
+        cur = (db.prepare("SELECT parent_id FROM folders WHERE id = ?").get(cur) as { parent_id: string | null } | undefined)?.parent_id ?? null;
+      }
+      return false;
+    };
+
+    // Validates the parts of a host body that zod can't: the folder exists
+    // and any new credential is usable. Returns the credential to store.
+    const checkHostBody = (body: z.infer<typeof HostInput>): { error: string } | { cred: CredentialInput | undefined } => {
+      if (!folderExists(body.folderId)) return { error: "That folder doesn't exist." };
+      if (!body.credential) return { cred: undefined };
+      return checkCredential(body.credential);
+    };
 
     app.get("/api/folders", { preHandler: auth }, async () => {
       const rows = app.skiffDb.raw
@@ -44,8 +103,11 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       return ok(rows);
     });
 
-    app.post("/api/folders", { preHandler: auth }, async (req) => {
+    app.post("/api/folders", { preHandler: auth }, async (req, reply) => {
       const body = FolderInput.parse(req.body);
+      if (!folderExists(body.parentId)) {
+        return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, "Parent folder doesn't exist."));
+      }
       const id = generateId("fld");
       const maxPos = (body.parentId === null
         ? app.skiffDb.raw.prepare("SELECT COALESCE(MAX(position), 0) + 1 as p FROM folders WHERE parent_id IS NULL").get()
@@ -66,6 +128,12 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
     app.put("/api/folders/:id", { preHandler: auth }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const body = FolderInput.parse(req.body);
+      if (!folderExists(body.parentId)) {
+        return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, "Parent folder doesn't exist."));
+      }
+      if (wouldCycle(id, body.parentId)) {
+        return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, "A folder can't be moved inside itself."));
+      }
       const result = app.skiffDb.raw.prepare(
         "UPDATE folders SET name = ?, parent_id = ? WHERE id = ?"
       ).run(body.name, body.parentId, id);
@@ -119,20 +187,24 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       return ok(normalizeHost(row));
     });
 
-    app.post("/api/hosts", { preHandler: auth }, async (req) => {
+    app.post("/api/hosts", { preHandler: auth }, async (req, reply) => {
       const body = HostInput.parse(req.body);
+      const checked = checkHostBody(body);
+      if ("error" in checked) return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, checked.error));
+      const cred = checked.cred;
+      if (cred) body.authMethod = cred.kind;
       const hostId = generateId("hst");
       let credentialId: string | null = null;
 
-      if (body.credential) {
+      if (cred) {
         credentialId = generateId("crd");
-        const plaintext = body.credential.passphrase
-          ? JSON.stringify({ value: body.credential.value, passphrase: body.credential.passphrase })
-          : body.credential.value;
+        const plaintext = cred.passphrase
+          ? JSON.stringify({ value: cred.value, passphrase: cred.passphrase })
+          : cred.value;
         const encrypted = encrypt(plaintext, req.vaultKey);
         app.skiffDb.raw.prepare(
           "INSERT INTO credentials (id, kind, nonce, encrypted_blob, created_at) VALUES (?, ?, ?, ?, ?)"
-        ).run(credentialId, body.credential.kind, encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
+        ).run(credentialId, cred.kind, encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
       }
 
       app.skiffDb.raw.prepare(
@@ -160,21 +232,29 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       if (!existing) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Host not found"));
 
       const body = HostInput.parse(req.body);
+      const checked = checkHostBody(body);
+      if ("error" in checked) return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, checked.error));
+      const cred = checked.cred;
+      // A new credential decides the auth method. Without one, keep the stored
+      // method: switching the form's tab without supplying a new secret must
+      // not leave the host claiming "key" while holding a password.
+      if (cred) body.authMethod = cred.kind;
+      else if (existing.credential_id) body.authMethod = existing.auth_method;
       const db = app.skiffDb.raw;
 
       const tx = db.transaction(() => {
         let credentialId = existing.credential_id;
-        if (body.credential) {
+        if (cred) {
           const newCredId = generateId("crd");
-          const plaintext = body.credential.passphrase
-            ? JSON.stringify({ value: body.credential.value, passphrase: body.credential.passphrase })
-            : body.credential.value;
+          const plaintext = cred.passphrase
+            ? JSON.stringify({ value: cred.value, passphrase: cred.passphrase })
+            : cred.value;
           const encrypted = encrypt(plaintext, req.vaultKey);
           // Insert the new credential first, then remove the old one — so a
           // failure never leaves the host pointing at a deleted credential.
           db.prepare(
             "INSERT INTO credentials (id, kind, nonce, encrypted_blob, created_at) VALUES (?, ?, ?, ?, ?)"
-          ).run(newCredId, body.credential.kind, encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
+          ).run(newCredId, cred.kind, encrypted.nonce, encrypted.ciphertext, new Date().toISOString());
           if (credentialId) {
             db.prepare("DELETE FROM credentials WHERE id = ?").run(credentialId);
           }
@@ -198,6 +278,27 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
         detail: { label: body.label, hostname: body.hostname }, ip: req.ip,
       });
       return ok(normalizeHost(db.prepare("SELECT * FROM hosts WHERE id = ?").get(id)));
+    });
+
+    // Forget a host's pinned SSH key so the next connection asks to trust the
+    // new one — for a server that was legitimately rebuilt. Accepting a changed
+    // key is exactly what a man-in-the-middle wants, so it's owner/admin only
+    // and audited with the key being forgotten.
+    app.delete("/api/hosts/:id/known-host", { preHandler: ownerOnly }, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const db = app.skiffDb.raw;
+      const host = db.prepare("SELECT hostname, port, label FROM hosts WHERE id = ?").get(id) as any;
+      if (!host) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Host not found"));
+      const pinned = db.prepare("SELECT fingerprint FROM known_hosts WHERE hostname = ? AND port = ?")
+        .get(host.hostname, host.port) as { fingerprint: string } | undefined;
+      db.prepare("DELETE FROM known_hosts WHERE hostname = ? AND port = ?").run(host.hostname, host.port);
+      writeAudit(db, {
+        user: req.sessionUser, action: "host.fingerprint_reset",
+        resourceType: "host", resourceId: id,
+        detail: { label: host.label, hostname: host.hostname, port: host.port, forgotten: pinned?.fingerprint ?? null },
+        ip: req.ip,
+      });
+      return ok({ reset: !!pinned });
     });
 
     app.delete("/api/hosts/:id", { preHandler: auth }, async (req, reply) => {

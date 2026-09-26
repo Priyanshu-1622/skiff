@@ -1,9 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { ok } from "../lib/response.js";
+import { ok, err } from "../lib/response.js";
 import { generateId } from "../lib/id.js";
 import type { SessionStore } from "../crypto/session-store.js";
 import { requireUnlocked } from "../lib/auth-middleware.js";
+import { writeAudit } from "../lib/audit.js";
+import { ApiErrorCode } from "@skiff/shared";
 
 const ImportBody = z.object({
   configText: z.string().min(1),
@@ -25,54 +27,69 @@ export const importRoutes: (deps: ImportRouteDeps) => FastifyPluginAsync =
       return ok({ hosts });
     });
 
-    app.post("/api/import/apply", { preHandler: auth }, async (req) => {
+    app.post("/api/import/apply", { preHandler: auth }, async (req, reply) => {
       const body = ImportBody.parse(req.body);
+      const db = app.skiffDb.raw;
+      if (body.folderId && !db.prepare("SELECT 1 FROM folders WHERE id = ?").get(body.folderId)) {
+        return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, "That folder doesn't exist."));
+      }
+
       const parsed = parseSSHConfig(body.configText);
       const selected = body.selectedHosts
         ? parsed.filter((h) => body.selectedHosts!.includes(h.alias))
         : parsed;
 
       const created: string[] = [];
-      const db = app.skiffDb.raw;
+      const skipped: string[] = [];
 
       const insertHost = db.prepare(
         `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', 0, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, '[]', 0, ?)`
+      );
+      // Importing the same config twice shouldn't double every host.
+      const alreadyThere = db.prepare(
+        "SELECT 1 FROM hosts WHERE label = ? AND hostname = ? AND port = ? AND username = ?"
       );
 
       const tx = db.transaction(() => {
         for (const h of selected) {
-          const hostId = generateId("hst");
-
-          // key-based imports. The IdentityFile path is a local path on the
-          // user's machine — it is not the key content. Storing a comment string
-          // as the credential causes ssh2 to fail with a confusing "invalid key"
-          // error at connect time. Instead, leave credential_id null so the
-          // user is prompted to paste the actual key content when they connect.
+          const hostname = h.hostname || h.alias;
+          const port = h.port || 22;
+          const user = h.user || "root";
+          if (alreadyThere.get(h.alias, hostname, port, user)) {
+            skipped.push(h.alias);
+            continue;
+          }
+          // No credential is stored: ~/.ssh/config only names key *files*,
+          // which live on the user's machine, and never holds passwords. The
+          // terminal tells the user to add one when they first connect.
           insertHost.run(
-            hostId, body.folderId, h.alias, h.hostname || h.alias,
-            h.port || 22, h.user || "root",
+            generateId("hst"), body.folderId, h.alias, hostname, port, user,
             h.identityFile ? "key" : "password",
-            null, // credential_id intentionally null for key-based imports
             new Date().toISOString(),
           );
-          created.push(hostId);
+          created.push(h.alias);
         }
       });
-
       tx();
+
+      if (created.length) {
+        writeAudit(db, {
+          user: req.sessionUser, action: "host.import",
+          detail: { imported: created.length, skipped: skipped.length }, ip: req.ip,
+        });
+      }
+
       return ok({
         imported: created.length,
-        hostIds: created,
-        // Surface which hosts need credentials so the UI can warn the user
-        needsCredential: selected
-          .filter((h) => h.identityFile)
-          .map((h) => h.alias),
+        skipped,
+        // Every imported host still needs its password or key pasted in.
+        needsCredential: created,
       });
     });
   };
 
-interface ParsedHost {
+export interface ParsedHost {
   alias: string;
   hostname: string | null;
   port: number | null;
@@ -80,38 +97,66 @@ interface ParsedHost {
   identityFile: string | null;
 }
 
-function parseSSHConfig(text: string): ParsedHost[] {
+/**
+ * Parse the parts of an OpenSSH client config that map onto a Skiff host.
+ *
+ * Follows ssh_config(5) where it matters for that:
+ *   - keywords are case-insensitive, and "Key value" and "Key=value" both work;
+ *   - values may be double-quoted;
+ *   - one `Host` line can name several aliases, each becoming a host;
+ *   - patterns (`*`, `?`, `!negated`) aren't single hosts and are skipped;
+ *   - a `Match` block ends the current host — its settings are conditional,
+ *     so they must not be applied to whatever `Host` came before it;
+ *   - the first value given for a keyword wins, as in ssh.
+ * `Include` isn't followed: the included files aren't available here.
+ */
+export function parseSSHConfig(text: string): ParsedHost[] {
   const hosts: ParsedHost[] = [];
-  let current: ParsedHost | null = null;
+  let current: ParsedHost[] = [];
 
-  for (const rawLine of text.split("\n")) {
+  const unquote = (v: string) => {
+    const t = v.trim();
+    return t.length >= 2 && t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
+  };
+  const firstWins = (key: keyof ParsedHost, value: string | number | null) => {
+    for (const h of current) if (h[key] === null) (h as any)[key] = value;
+  };
+
+  for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
 
-    const match = line.match(/^(\S+)\s+(.+)$/);
+    const match = line.match(/^(\S+?)(?:\s*=\s*|\s+)(.+)$/);
     if (!match) continue;
-
-    const [, keyword, value] = match;
-    const kw = keyword!.toLowerCase();
+    const kw = match[1]!.toLowerCase();
+    const value = match[2]!.trim();
 
     if (kw === "host") {
-      // Commit the previous host before starting (or skipping) the next one.
-      if (current) hosts.push(current);
-      current = null;
-      // Skip wildcard patterns — their directives apply to multiple hosts
-      // and we can't represent that as a single entry.
-      if (value!.includes("*") || value!.includes("?")) continue;
-      current = { alias: value!.trim(), hostname: null, port: null, user: null, identityFile: null };
-    } else if (current) {
+      hosts.push(...current);
+      current = value
+        .split(/\s+/)
+        .map(unquote)
+        .filter((a) => a && !/[*?!]/.test(a))
+        .map((alias) => ({ alias, hostname: null, port: null, user: null, identityFile: null }));
+    } else if (kw === "match") {
+      hosts.push(...current);
+      current = [];
+    } else if (current.length) {
       switch (kw) {
-        case "hostname": current.hostname = value!.trim(); break;
-        case "port": current.port = parseInt(value!.trim(), 10) || null; break;
-        case "user": current.user = value!.trim(); break;
-        case "identityfile": current.identityFile = value!.trim(); break;
+        case "hostname": firstWins("hostname", unquote(value)); break;
+        case "port": {
+          const port = parseInt(unquote(value), 10);
+          if (port >= 1 && port <= 65535) firstWins("port", port);
+          break;
+        }
+        case "user": firstWins("user", unquote(value)); break;
+        case "identityfile": firstWins("identityFile", unquote(value)); break;
       }
     }
   }
 
-  if (current) hosts.push(current);
-  return hosts;
+  hosts.push(...current);
+  // An alias listed under two Host blocks: keep the first, as ssh would.
+  const seen = new Set<string>();
+  return hosts.filter((h) => (seen.has(h.alias) ? false : (seen.add(h.alias), true)));
 }
