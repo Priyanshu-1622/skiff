@@ -42,7 +42,9 @@ jobs:
       - name: Check or record signature
         # Only run on PR events, or on comments that are actually on a PR.
         if: (github.event.issue.pull_request && contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')) || github.event_name == 'pull_request_target'
-        uses: contributor-assistant/github-action@v2.6.1
+        # Pinned to the commit behind v2.6.1: this job runs on pull_request_target
+        # with a write token, so a moved tag must not be able to change what runs.
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           # Provided automatically by GitHub — used to comment on the PR.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
