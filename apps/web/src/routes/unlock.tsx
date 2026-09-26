@@ -96,7 +96,7 @@ export function UnlockRoute() {
             <div className="unlock-mark"><I.Skiff size={22} /></div>
             <div className="unlock-wordmark">
               <span className="name">Skiff</span>
-              <span className="tag">{isSetup ? "setup" : "v0.3"}</span>
+              <span className="tag">{isSetup ? "setup" : "v0.3.2"}</span>
             </div>
             <p className="unlock-sub">
               {isSetup
