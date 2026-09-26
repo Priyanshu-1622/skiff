@@ -2,26 +2,81 @@ import type { FastifyPluginAsync } from "fastify";
 import { Client as SSH2Client } from "ssh2";
 import { join } from "node:path";
 import type { SessionStore } from "../crypto/session-store.js";
-import type { SessionManager } from "../lib/session-manager.js";
+import type { Config } from "../config.js";
+import { type SessionManager, type AttachedClient, ownerKeyFor, managedIdFor } from "../lib/session-manager.js";
 import { decrypt } from "../crypto/vault.js";
 import { writeAudit } from "../lib/audit.js";
 import { SessionRecorder } from "../lib/recorder.js";
 import { generateId } from "../lib/id.js";
+import { hostKeyFingerprint, hostKeyType, legacyHostKeyId } from "../lib/host-key.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
   sessionStore: SessionStore;
   sessionManager: SessionManager;
   dataDir: string;
+  config: Pick<Config, "nodeEnv" | "trustedOrigins" | "maxSessionsPerUser">;
 }
 
 const FINGERPRINT_TIMEOUT_MS = 60_000;
 
+/** Sent when a browser is detached because its login was locked or expired. */
+const VAULT_LOCKED_REASON = "Vault locked — your session is still running. Unlock to reattach.";
+const CLOSE_VAULT_LOCKED = 4001;
+
+const DEFAULT_MAX_SESSIONS_PER_USER = 20;
+const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
+/** Show a stored pin as a real fingerprint, even if an older Skiff stored the whole key. */
+function displayFingerprint(stored: string): string {
+  const b64 = stored.startsWith("SHA256:") ? stored.slice(7) : stored;
+  if (b64.length <= 44) return stored; // already a SHA-256 fingerprint
+  try { return hostKeyFingerprint(Buffer.from(b64, "base64")); } catch { return stored; }
+}
+
+function clampDim(n: unknown, max: number): number | null {
+  const v = Number(n);
+  return Number.isInteger(v) && v >= 1 && v <= max ? v : null;
+}
+
 export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
+    // A lock, idle expiry, or password change ends a browser login. Any
+    // terminal attached through that login is detached — never left live on a
+    // locked screen — but the SSH session itself keeps running for its owner.
+    const stopListening = deps.sessionStore.onDestroy((loginSessionId) => {
+      deps.sessionManager.detachByLogin(loginSessionId, VAULT_LOCKED_REASON);
+    });
+    app.addHook("onClose", async () => { stopListening(); });
+
+    // Browsers attach cookies to WebSocket handshakes from any page, and
+    // SameSite=Lax still lets another site on the same domain (another app on
+    // this host, a sibling subdomain) through. So a browser handshake must come
+    // from Skiff's own origin. Non-browser clients send no Origin; they still
+    // need a valid session cookie.
+    const originAllowed = (origin: string | undefined, host: string): boolean => {
+      if (!origin) return true;
+      if (deps.config.trustedOrigins.includes(origin)) return true;
+      if (deps.config.nodeEnv === "development" && DEV_ORIGINS.includes(origin)) return true;
+      try { return new URL(origin).host === host; } catch { return false; }
+    };
+
+    const maxSessions = deps.config.maxSessionsPerUser ?? DEFAULT_MAX_SESSIONS_PER_USER;
+    // Connections still being set up, per owner, so a burst of clicks can't
+    // slip past the cap before any of them has registered.
+    const connecting = new Map<string, number>();
     app.get("/api/terminal/:hostId", { websocket: true }, (socket, req) => {
       const { hostId } = req.params as { hostId: string };
       const db = app.skiffDb.raw;
+
+      // ── Origin ────────────────────────────────────────────────
+      // req.host keeps the port (Fastify 5's req.hostname drops it), matching
+      // URL.host of the Origin.
+      if (!originAllowed(req.headers.origin, req.host)) {
+        socket.send(JSON.stringify({ type: "error", code: ApiErrorCode.FORBIDDEN, message: "Connection refused: wrong origin" }));
+        socket.close(4003);
+        return;
+      }
 
       // ── Auth ──────────────────────────────────────────────────
       const sessionId = req.cookies?.skiff_session;
@@ -45,11 +100,13 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         return;
       }
 
-      // managed-session id is per (browser session cookie + host) so the same
-      // user reopening the same host reattaches to their live session.
-      const managedId = `${sessionId}:${hostId}`;
+      // The live session belongs to the person (vault owner, or team member),
+      // not to this browser login. Re-locking, re-logging in, or opening the
+      // host from another device all land on the same id and reattach.
+      const managedId = managedIdFor(ownerKeyFor(entry.user), hostId);
 
-      const client = {
+      const client: AttachedClient = {
+        loginSessionId: sessionId,
         send: (chunk: Buffer) => {
           if (socket.readyState === 1) {
             socket.send(JSON.stringify({ type: "data", data: chunk.toString("base64") }));
@@ -58,9 +115,27 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         end: (reason: string) => {
           if (socket.readyState === 1) {
             socket.send(JSON.stringify({ type: "status", message: reason }));
-            socket.close(1000);
+            socket.close(reason === VAULT_LOCKED_REASON ? CLOSE_VAULT_LOCKED : 1000);
           }
         },
+      };
+
+      // Last size the browser reported. The PTY is opened at this size, so a
+      // new shell doesn't start at 80x24 and wrap wrongly until the next resize.
+      let lastSize: { rows: number; cols: number } | null = null;
+
+      // Typing counts as activity for the vault's idle lock; pings and resizes
+      // don't, or an open tab would keep the vault unlocked forever. If the
+      // login has already expired, getEntry() destroys it, which detaches us.
+      const touchLogin = () => { deps.sessionStore.getEntry(sessionId); };
+
+      const isAttached = () => deps.sessionManager.get(managedId)?.attached === client;
+
+      const sendReplay = (scrollback: Buffer | null, message: string) => {
+        socket.send(JSON.stringify({ type: "status", message }));
+        if (scrollback && scrollback.length) {
+          socket.send(JSON.stringify({ type: "data", data: scrollback.toString("base64") }));
+        }
       };
 
       socket.on("message", (raw: Buffer | string) => {
@@ -69,10 +144,17 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           if (msg.type === "ping") {
             if (socket.readyState === 1) socket.send(JSON.stringify({ type: "pong", t: msg.t }));
           } else if (msg.type === "input") {
-            deps.sessionManager.write(managedId, Buffer.from(msg.data, "base64"));
+            touchLogin();
+            deps.sessionManager.write(managedId, Buffer.from(msg.data, "base64"), client);
           } else if (msg.type === "resize") {
-            deps.sessionManager.resize(managedId, msg.rows, msg.cols);
+            const rows = clampDim(msg.rows, 1000);
+            const cols = clampDim(msg.cols, 1000);
+            if (rows && cols) {
+              lastSize = { rows, cols };
+              deps.sessionManager.resize(managedId, rows, cols, client);
+            }
           } else if (msg.type === "end_session") {
+            if (!isAttached()) return; // only the window actually showing it may end it
             // Closing the socket only detaches — that is what makes sessions
             // survive a closed tab. Ending one has to be asked for explicitly,
             // and it is the only path that runs onEnd, so it is also the only
@@ -92,15 +174,44 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
       // Fast path: an existing live session for this host? Reattach + replay.
       const existing = deps.sessionManager.get(managedId);
       if (existing && !existing.closed) {
-        const scrollback = deps.sessionManager.attach(managedId, client);
-        socket.send(JSON.stringify({ type: "status", message: "Reattached" }));
-        if (scrollback && scrollback.length) {
-          socket.send(JSON.stringify({ type: "data", data: scrollback.toString("base64") }));
-        }
+        sendReplay(deps.sessionManager.attach(managedId, client), "Reattached");
         return;
       }
 
       // Slow path: open a brand-new SSH session.
+      //
+      // Without a stored credential ssh2 would try "none" auth and fail with
+      // "All configured authentication methods failed", which tells nobody
+      // what to do. Hosts imported from ~/.ssh/config start out this way.
+      if (!host.credential_id) {
+        socket.send(JSON.stringify({
+          type: "error", code: "NO_CREDENTIAL",
+          message: "No password or key is saved for this host yet. Edit the host (the ⚙ button in the host list) and add one.",
+        }));
+        socket.close(4002);
+        return;
+      }
+
+      // Within the owner's cap.
+      const owner = ownerKeyFor(entry.user);
+      const open = deps.sessionManager.countByOwner(owner) + (connecting.get(owner) ?? 0);
+      if (open >= maxSessions) {
+        socket.send(JSON.stringify({
+          type: "error",
+          message: `You already have ${open} open sessions (limit ${maxSessions}). End one before opening another.`,
+        }));
+        socket.close(4029);
+        return;
+      }
+      connecting.set(owner, (connecting.get(owner) ?? 0) + 1);
+      let released = false;
+      const releaseSlot = () => {
+        if (released) return;
+        released = true;
+        const n = (connecting.get(owner) ?? 1) - 1;
+        if (n > 0) connecting.set(owner, n); else connecting.delete(owner);
+      };
+
       const credential = host.credential_id
         ? (db.prepare("SELECT * FROM credentials WHERE id = ?").get(host.credential_id) as any)
         : null;
@@ -125,20 +236,41 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
             .prepare("SELECT fingerprint FROM known_hosts WHERE hostname = ? AND port = ?")
             .get(host.hostname, host.port) as { fingerprint: string } | undefined;
 
-          connConfig.hostVerifier = (hashedKey: Buffer, callback: (approved: boolean) => void) => {
-            const fp = `SHA256:${hashedKey.toString("base64")}`;
+          // ssh2 passes the raw host key (no hostHash option), so compute the
+          // same SHA256 fingerprint `ssh-keygen -lf` shows — the one a person
+          // can actually compare against their server.
+          connConfig.hostVerifier = (rawKey: Buffer, callback: (approved: boolean) => void) => {
+            const fp = hostKeyFingerprint(rawKey);
+            const algorithm = hostKeyType(rawKey);
 
             if (knownHost) {
-              if (knownHost.fingerprint !== fp) {
-                socket.send(JSON.stringify({ type: "fingerprint_mismatch", expected: knownHost.fingerprint, actual: fp }));
-                callback(false);
+              if (knownHost.fingerprint === fp) {
+                callback(true);
                 return;
               }
-              callback(true);
+              // Pinned by an older Skiff, which stored the whole key instead of
+              // its fingerprint. Same key → migrate the row and carry on.
+              if (knownHost.fingerprint === legacyHostKeyId(rawKey)) {
+                db.prepare("UPDATE known_hosts SET fingerprint = ?, algorithm = ? WHERE hostname = ? AND port = ?")
+                  .run(fp, algorithm, host.hostname, host.port);
+                callback(true);
+                return;
+              }
+              const meta = db.prepare("SELECT mode FROM vault_meta WHERE id = 1").get() as { mode?: string } | undefined;
+              socket.send(JSON.stringify({
+                type: "fingerprint_mismatch",
+                expected: displayFingerprint(knownHost.fingerprint),
+                actual: fp,
+                algorithm,
+                hostId,
+                // Only whoever owns the vault may re-trust a changed key.
+                canReset: meta?.mode !== "team" || !!entry.user?.isAdmin,
+              }));
+              callback(false);
               return;
             }
 
-            socket.send(JSON.stringify({ type: "fingerprint_new", fingerprint: fp, hostname: host.hostname }));
+            socket.send(JSON.stringify({ type: "fingerprint_new", fingerprint: fp, algorithm, hostname: host.hostname }));
 
             let settled = false;
             const timer = setTimeout(() => {
@@ -170,7 +302,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                   socket.removeListener("message", onApproval);
                   db.prepare(
                     "INSERT OR REPLACE INTO known_hosts (hostname, port, fingerprint, algorithm, first_seen_at) VALUES (?, ?, ?, ?, ?)"
-                  ).run(host.hostname, host.port, fp, "unknown", new Date().toISOString());
+                  ).run(host.hostname, host.port, fp, algorithm, new Date().toISOString());
                   callback(true);
                 } else if (msg.type === "fingerprint_reject") {
                   settled = true;
@@ -204,6 +336,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           socket.send(JSON.stringify({ type: "status", message: "Connecting..." }));
           ssh.connect(connConfig);
         } catch (e: any) {
+          releaseSlot();
           socket.send(JSON.stringify({ type: "error", message: e.message }));
           socket.close(4002);
         }
@@ -213,7 +346,6 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         connected = true;
         socket.removeListener("close", onEarlyClose);
 
-        socket.send(JSON.stringify({ type: "status", message: "Connected" }));
         db.prepare("UPDATE hosts SET last_connected_at = ? WHERE id = ?")
           .run(new Date().toISOString(), hostId);
         writeAudit(db, {
@@ -223,16 +355,32 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           ip: req.ip,
         });
 
-        ssh.shell({ term: "xterm-256color" }, async (shellErr, stream) => {
+        const window = lastSize ? { rows: lastSize.rows, cols: lastSize.cols } : {};
+        ssh.shell({ term: "xterm-256color", ...window }, (shellErr, stream) => {
           if (shellErr) {
             socket.send(JSON.stringify({ type: "error", message: shellErr.message }));
             socket.close(4003);
             return;
           }
 
+          // Another window for the same owner+host finished connecting first
+          // (double click, two tabs, Reconnect mid-connect). Join that session
+          // instead of replacing it — replacing it orphaned one connection and
+          // let its close handler kill the other.
+          const raced = deps.sessionManager.get(managedId);
+          if (raced && !raced.closed) {
+            try { stream.close(); } catch { /* ignore */ }
+            try { ssh.end(); } catch { /* ignore */ }
+            if (socket.readyState === 1) {
+              sendReplay(deps.sessionManager.attach(managedId, client), "Reattached");
+            }
+            return;
+          }
+
           const session = deps.sessionManager.register({
-            id: managedId, hostId, user: entry.user, ssh, stream,
+            id: managedId, hostId, owner, user: entry.user, ssh, stream,
           });
+          releaseSlot(); // now counted by the session manager itself
 
           // Optional recording (per-vault setting; mode-aware default).
           const meta = db.prepare("SELECT recording_enabled FROM vault_meta WHERE id = 1").get() as
@@ -240,10 +388,13 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           if (meta?.recording_enabled) {
             const recId = generateId("rec");
             try {
-              const recorder = await SessionRecorder.create({
+              // Synchronous, in the same tick the shell opened: output can't
+              // arrive before onOutput is set, so the MOTD and first prompt
+              // are in the recording too.
+              const recorder = SessionRecorder.create({
                 dir: join(deps.dataDir, "recordings"),
                 id: recId,
-                cols: 80, rows: 24,
+                cols: lastSize?.cols ?? 80, rows: lastSize?.rows ?? 24,
                 title: `${host.label} (${host.username}@${host.hostname})`,
               });
               db.prepare(
@@ -257,6 +408,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
               );
 
               session.onOutput = (chunk) => recorder.writeOutput(chunk);
+              session.onResize = (rows, cols) => recorder.writeResize(cols, rows);
               session.onEnd = () => {
                 const { durationMs, bytes } = recorder.finalize();
                 try {
@@ -280,9 +432,23 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
             return;
           }
 
-          deps.sessionManager.attach(managedId, client);
+          // The login may have been locked while we were connecting. Keep the
+          // new session for its owner (it reaps if nobody returns), but don't
+          // attach a locked browser to a live shell.
+          if (!deps.sessionStore.getEntry(sessionId)) {
+            client.end(VAULT_LOCKED_REASON);
+            return;
+          }
+
+          // Only now is there a session to receive input and resizes, so only
+          // now tell the browser it's connected — it flushes buffered
+          // keystrokes on this message, and they used to arrive too early.
+          sendReplay(deps.sessionManager.attach(managedId, client), "Connected");
         });
       });
+
+      // Any way the connection ends before registering frees the slot.
+      ssh.on("close", releaseSlot);
 
       ssh.on("error", (sshErr) => {
         if (socket.readyState === 1) {

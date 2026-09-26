@@ -1,6 +1,6 @@
-import { createWriteStream, type WriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 /**
  * Records a terminal session to disk in asciicast v2 format — the open
@@ -8,6 +8,7 @@ import { join } from "node:path";
  *
  *   line 1: a header object { version, width, height, timestamp, ... }
  *   line n: an event array [elapsedSeconds, "o", outputChunk]
+ *           or a resize     [elapsedSeconds, "r", "COLSxROWS"]
  *
  * This is directly playable by the asciinema player (which we embed on the
  * frontend), and being a documented open format it's future-proof and
@@ -21,27 +22,41 @@ export class SessionRecorder {
   private startMs = 0;
   private bytes = 0;
   private finalized = false;
+  // SSH output arrives in arbitrary chunks, so a multi-byte UTF-8 character
+  // can be split across two of them. Decoding each chunk on its own turned
+  // both halves into U+FFFD; the decoder carries the partial bytes over.
+  private decoder = new StringDecoder("utf8");
   readonly filePath: string;
+  /** Resolves once the file is fully written and closed (or failed). */
+  readonly closed: Promise<void>;
+  private markClosed!: () => void;
 
   private constructor(filePath: string) {
     this.filePath = filePath;
+    this.closed = new Promise((resolve) => { this.markClosed = resolve; });
   }
 
   /**
    * Create a recorder writing to `<dir>/<id>.cast`, with the asciicast header
    * already written. `cols`/`rows` describe the initial terminal size.
+   *
+   * Synchronous on purpose: the caller wires it up in the same tick the SSH
+   * shell opens, so not even the first bytes (MOTD, prompt) can slip past.
    */
-  static async create(opts: {
+  static create(opts: {
     dir: string;
     id: string;
     cols: number;
     rows: number;
     title?: string;
-  }): Promise<SessionRecorder> {
-    await mkdir(opts.dir, { recursive: true });
+  }): SessionRecorder {
+    mkdirSync(opts.dir, { recursive: true });
     const filePath = join(opts.dir, `${opts.id}.cast`);
     const rec = new SessionRecorder(filePath);
     rec.stream = createWriteStream(filePath, { flags: "w" });
+    // An I/O error (disk full, permissions) must not crash the process.
+    rec.stream.on("error", () => { rec.finalized = true; rec.stream = null; rec.markClosed(); });
+    rec.stream.on("close", () => rec.markClosed());
     rec.startMs = Date.now();
 
     const header = {
@@ -56,13 +71,22 @@ export class SessionRecorder {
     return rec;
   }
 
+  private elapsed(): number {
+    return Number(((Date.now() - this.startMs) / 1000).toFixed(6));
+  }
+
   /** Record a chunk of terminal output. */
   writeOutput(chunk: Buffer): void {
     if (!this.stream || this.finalized) return;
-    const elapsed = (Date.now() - this.startMs) / 1000;
-    const event = [Number(elapsed.toFixed(6)), "o", chunk.toString("utf8")];
     this.bytes += chunk.length;
-    this.writeLine(JSON.stringify(event));
+    const text = this.decoder.write(chunk);
+    if (text) this.writeLine(JSON.stringify([this.elapsed(), "o", text]));
+  }
+
+  /** Record a terminal resize so playback reflows exactly as the session did. */
+  writeResize(cols: number, rows: number): void {
+    if (!this.stream || this.finalized) return;
+    this.writeLine(JSON.stringify([this.elapsed(), "r", `${cols}x${rows}`]));
   }
 
   private writeLine(line: string): void {
@@ -74,6 +98,8 @@ export class SessionRecorder {
   finalize(): { durationMs: number; bytes: number } {
     const durationMs = Date.now() - this.startMs;
     if (!this.finalized && this.stream) {
+      const tail = this.decoder.end();
+      if (tail) this.writeLine(JSON.stringify([this.elapsed(), "o", tail]));
       this.finalized = true;
       try { this.stream.end(); } catch { /* ignore */ }
       this.stream = null;

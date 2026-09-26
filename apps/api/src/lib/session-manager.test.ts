@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { SessionManager } from "./session-manager.js";
+import { SessionManager, ownerKeyFor, managedIdFor } from "./session-manager.js";
 
 function fakeSsh() {
   const ssh: any = new EventEmitter();
@@ -27,10 +27,10 @@ function fakeStream() {
   return stream;
 }
 
-function register(mgr: SessionManager, id = "s1:h1") {
+function register(mgr: SessionManager, id = "s1:h1", owner?: string) {
   const ssh = fakeSsh();
   const stream = fakeStream();
-  const session = mgr.register({ id, hostId: "h1", ssh, stream });
+  const session = mgr.register({ id, hostId: id.split(":").pop()!, owner, ssh, stream });
   return { ssh, stream, session };
 }
 
@@ -196,4 +196,102 @@ test("shutdown ends all sessions", () => {
   assert.equal(a.ssh.ended, true);
   assert.equal(b.ssh.ended, true);
   assert.equal(mgr.list().length, 0);
+});
+
+// ── Ownership (sessions belong to a person, not a browser login) ──
+
+test("owner key: team user vs personal vault", () => {
+  assert.equal(ownerKeyFor({ id: "usr_1", username: "a", isAdmin: false }), "user:usr_1");
+  assert.equal(ownerKeyFor(undefined), "vault");
+  assert.equal(managedIdFor("vault", "h1"), "vault:h1");
+});
+
+test("detachByLogin detaches only that login's client and keeps the session", () => {
+  const mgr = new SessionManager();
+  register(mgr, "vault:h1");
+  register(mgr, "vault:h2");
+  let aEnded = "";
+  let bEnded = "";
+  mgr.attach("vault:h1", { loginSessionId: "L1", send: () => {}, end: (r) => { aEnded = r; } });
+  mgr.attach("vault:h2", { loginSessionId: "L2", send: () => {}, end: (r) => { bEnded = r; } });
+
+  mgr.detachByLogin("L1", "locked");
+
+  assert.equal(aEnded, "locked");
+  assert.equal(bEnded, "");
+  assert.equal(mgr.get("vault:h1")!.attached, null);
+  assert.equal(mgr.get("vault:h1")!.closed, false); // still running for its owner
+  assert.ok(mgr.get("vault:h2")!.attached);
+});
+
+test("a detached-by-lock session can be reattached with its scrollback", () => {
+  const mgr = new SessionManager();
+  const { stream } = register(mgr, "vault:h1");
+  mgr.attach("vault:h1", { loginSessionId: "L1", send: () => {}, end: () => {} });
+  stream.emit("data", Buffer.from("still here"));
+  mgr.detachByLogin("L1", "locked");
+
+  const scrollback = mgr.attach("vault:h1", { loginSessionId: "L2", send: () => {}, end: () => {} });
+  assert.equal(scrollback!.toString(), "still here");
+});
+
+test("endByOwner ends every session of that owner only", () => {
+  const mgr = new SessionManager();
+  const a = register(mgr, "user:u1:h1", "user:u1");
+  const b = register(mgr, "user:u1:h2", "user:u1");
+  const c = register(mgr, "user:u2:h1", "user:u2");
+
+  mgr.endByOwner("user:u1", "disabled");
+
+  assert.equal(a.ssh.ended, true);
+  assert.equal(b.ssh.ended, true);
+  assert.equal(c.ssh.ended, false);
+  assert.equal(mgr.list().length, 1);
+});
+
+test("transferOwner re-keys sessions to the new owner", () => {
+  const mgr = new SessionManager();
+  register(mgr, "vault:h1", "vault");
+  mgr.transferOwner("vault", "user:u1");
+  assert.equal(mgr.get("vault:h1"), undefined);
+  assert.equal(mgr.get("user:u1:h1")!.owner, "user:u1");
+});
+
+test("register refuses to replace a live session with the same id", () => {
+  const mgr = new SessionManager();
+  register(mgr, "vault:h1");
+  assert.throws(() => register(mgr, "vault:h1"));
+});
+
+test("a stale connection's close cannot end a newer session with the same id", () => {
+  const mgr = new SessionManager();
+  const old = register(mgr, "vault:h1");
+  mgr.end("vault:h1", "done");
+  const fresh = register(mgr, "vault:h1");
+
+  old.stream.emit("close"); // late close from the first connection
+  assert.equal(mgr.get("vault:h1"), fresh.session);
+  assert.equal(fresh.ssh.ended, false);
+});
+
+test("only the attached client may type once clients are identified", () => {
+  const mgr = new SessionManager();
+  const { stream } = register(mgr, "vault:h1");
+  const first = { send: () => {}, end: () => {} };
+  const second = { send: () => {}, end: () => {} };
+  mgr.attach("vault:h1", first);
+  mgr.attach("vault:h1", second); // boots first
+
+  mgr.write("vault:h1", Buffer.from("x"), first);
+  mgr.write("vault:h1", Buffer.from("y"), second);
+  assert.deepEqual(stream.written.map((b: Buffer) => b.toString()), ["y"]);
+});
+
+test("resize is forwarded to the recording hook", () => {
+  const mgr = new SessionManager();
+  const { session } = register(mgr, "vault:h1");
+  const seen: Array<[number, number]> = [];
+  session.onResize = (r, c) => seen.push([r, c]);
+  mgr.resize("vault:h1", 50, 160);
+  assert.deepEqual(seen, [[50, 160]]);
 });

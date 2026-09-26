@@ -22,7 +22,7 @@ test("writes a valid asciicast v2 header", async () => {
   try {
     const rec = await SessionRecorder.create({ dir, id: "rec_abc", cols: 100, rows: 30, title: "test" });
     rec.finalize();
-    await new Promise((r) => setTimeout(r, 30)); // let the write stream flush to disk
+    await rec.closed;
 
     const lines = readFileSync(join(dir, "rec_abc.cast"), "utf8").trim().split("\n");
     const header = JSON.parse(lines[0]!);
@@ -45,7 +45,7 @@ test("records output events in [time, 'o', data] form", async () => {
     await new Promise((r) => setTimeout(r, 10));
     rec.writeOutput(Buffer.from("world"));
     rec.finalize();
-    await new Promise((r) => setTimeout(r, 30)); // let the write stream flush
+    await rec.closed;
 
     const lines = readFileSync(join(dir, "rec_evt.cast"), "utf8").trim().split("\n");
     assert.equal(lines.length, 3); // header + 2 events
@@ -88,6 +88,48 @@ test("writeOutput after finalize is a no-op (no throw)", async () => {
 
     const lines = readFileSync(join(dir, "rec_no.cast"), "utf8").trim().split("\n");
     assert.equal(lines.length, 1); // header only; the late write was dropped
+  } finally {
+    await new Promise((r) => setTimeout(r, 30));
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("a UTF-8 character split across two chunks is recorded intact", async () => {
+  const dir = tmp();
+  try {
+    const rec = SessionRecorder.create({ dir, id: "rec_utf8", cols: 80, rows: 24 });
+    const bytes = Buffer.from("héllo ✓ 日本", "utf8");
+    // Split inside "✓" (3 bytes) and inside "日" (3 bytes).
+    const cut1 = bytes.indexOf(Buffer.from("✓")) + 1;
+    const cut2 = bytes.indexOf(Buffer.from("日")) + 2;
+    rec.writeOutput(bytes.subarray(0, cut1));
+    rec.writeOutput(bytes.subarray(cut1, cut2));
+    rec.writeOutput(bytes.subarray(cut2));
+    rec.finalize();
+    await rec.closed;
+
+    const events = readFileSync(join(dir, "rec_utf8.cast"), "utf8").trim().split("\n").slice(1).map((l) => JSON.parse(l));
+    const text = events.filter((e) => e[1] === "o").map((e) => e[2]).join("");
+    assert.equal(text, "héllo ✓ 日本");
+    assert.ok(!text.includes("�"));
+  } finally {
+    await new Promise((r) => setTimeout(r, 30));
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("resizes are recorded as asciicast 'r' events", async () => {
+  const dir = tmp();
+  try {
+    const rec = SessionRecorder.create({ dir, id: "rec_rs", cols: 120, rows: 40 });
+    rec.writeResize(100, 30);
+    rec.finalize();
+    await rec.closed;
+    const lines = readFileSync(join(dir, "rec_rs.cast"), "utf8").trim().split("\n");
+    assert.equal(JSON.parse(lines[0]!).width, 120);
+    const ev = JSON.parse(lines[1]!);
+    assert.equal(ev[1], "r");
+    assert.equal(ev[2], "100x30");
   } finally {
     await new Promise((r) => setTimeout(r, 30));
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

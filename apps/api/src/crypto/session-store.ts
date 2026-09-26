@@ -18,6 +18,7 @@ export class SessionStore {
   private sessions = new Map<string, SessionEntry>();
   private idleTimeoutMs: number;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private destroyListeners = new Set<(sessionId: string) => void>();
 
   constructor(idleTimeoutMinutes: number = 15) {
     this.idleTimeoutMs = idleTimeoutMinutes * 60 * 1000;
@@ -73,12 +74,22 @@ export class SessionStore {
     return entry;
   }
 
-  /** Destroy every session belonging to a given user (e.g. on disable). */
-  destroyUserSessions(userId: string): void {
+  /**
+   * Destroy every session belonging to a given user (e.g. on disable), or all
+   * but one of them (`exceptSessionId`) when they change their own password.
+   */
+  destroyUserSessions(userId: string, exceptSessionId?: string): void {
     for (const [id, entry] of this.sessions) {
-      if (entry.user?.id === userId) {
+      if (entry.user?.id === userId && id !== exceptSessionId) {
         this.destroy(id);
       }
+    }
+  }
+
+  /** Destroy sessions that carry no user identity (personal-mode logins). */
+  destroyAnonymous(): void {
+    for (const [id, entry] of this.sessions) {
+      if (!entry.user) this.destroy(id);
     }
   }
 
@@ -90,7 +101,20 @@ export class SessionStore {
     if (entry) {
       entry.vaultKey.fill(0);
       this.sessions.delete(sessionId);
+      for (const listener of this.destroyListeners) {
+        try { listener(sessionId); } catch { /* a listener must not block destroy */ }
+      }
     }
+  }
+
+  /**
+   * Be told whenever a session ends — lock, idle expiry, disable, password
+   * change. The terminal route uses this to detach any browser still attached
+   * under that login, so a locked vault never leaves a live shell on screen.
+   */
+  onDestroy(listener: (sessionId: string) => void): () => void {
+    this.destroyListeners.add(listener);
+    return () => this.destroyListeners.delete(listener);
   }
 
   /**
@@ -144,5 +168,6 @@ export class SessionStore {
       this.cleanupInterval = null;
     }
     this.destroyAll();
+    this.destroyListeners.clear();
   }
 }
