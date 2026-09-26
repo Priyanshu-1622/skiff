@@ -51,6 +51,12 @@ export function TeamLoginRoute() {
           </div>
 
           <form className="tm-login__card" onSubmit={handleSubmit}>
+            {status?.insecureTransport && (
+              <div className="tm-login__error" role="alert">
+                <span className="ic"><I.Warn size={13} /></span>
+                <span>Signing in won't work over plain HTTP from another computer. Open Skiff over HTTPS, or set SKIFF_INSECURE_HTTP=true on a network you trust.</span>
+              </div>
+            )}
             {error && (
               <div className="tm-login__error" role="alert">
                 <span className="ic"><I.Warn size={13} /></span>

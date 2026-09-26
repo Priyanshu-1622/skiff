@@ -18,13 +18,16 @@ export function UnlockRoute() {
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
   useEffect(() => {
     if (loading) return;
-    if (!status?.initialized) { navigate({ to: "/setup" }); return; }
+    // No status means the server couldn't be reached — that says nothing
+    // about whether a vault exists, so don't send anyone to first-run setup.
+    if (!status) return;
+    if (!status.initialized) { navigate({ to: "/setup" }); return; }
     if (status.unlocked) { navigate({ to: "/" }); return; }
     // Team vaults log in by username on a separate screen.
     if (status.mode === "team") navigate({ to: "/login" });
   }, [loading, status, navigate]);
 
-  const isSetup = !status?.initialized;
+  const isSetup = !!status && !status.initialized;
 
   const triggerShake = () => {
     setShake(true);
@@ -71,6 +74,19 @@ export function UnlockRoute() {
     );
   }
 
+  if (!status) {
+    return (
+      <BareShell>
+        <div className="unlock-stage">
+          <div className="unlock-card" style={{ textAlign: "center" }}>
+            <p className="unlock-sub" style={{ marginBottom: 16 }}>Can't reach the Skiff server. Is it running?</p>
+            <button type="button" className="unlock-btn" onClick={() => fetchStatus()}>Try again</button>
+          </div>
+        </div>
+      </BareShell>
+    );
+  }
+
   return (
     <BareShell>
       <div className="unlock-stage">
@@ -90,6 +106,13 @@ export function UnlockRoute() {
           </div>
 
           <form onSubmit={handleSubmit}>
+            {status?.insecureTransport && (
+              <div className="unlock-meta error" style={{ marginBottom: 12, alignItems: "flex-start", lineHeight: 1.45 }}>
+                <div className="dot" />
+                <span>Signing in won't work over plain HTTP from another computer. Open Skiff over HTTPS, or set SKIFF_INSECURE_HTTP=true on a network you trust.</span>
+              </div>
+            )}
+
             {/* Password field */}
             <div className="unlock-field">
               <div className={`unlock-input${error ? " error" : ""}${shake ? " shake" : ""}`}>

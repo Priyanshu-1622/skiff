@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { apiGet, apiDelete } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useVault, isVaultOwner } from "@/lib/vault";
 import * as I from "@/components/icons";
 import "@/styles/recordings.css";
 
@@ -20,31 +21,21 @@ interface Recording {
   status: string;
 }
 
-// asciinema-player is an open-source embeddable player. Loaded from CDN on
-// demand so it doesn't bloat the main bundle.
-const PLAYER_JS = "https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js";
-const PLAYER_CSS = "https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.css";
-
-let playerLoading: Promise<void> | null = null;
-function loadPlayer(): Promise<void> {
-  if ((window as any).AsciinemaPlayer) return Promise.resolve();
-  if (playerLoading) return playerLoading;
-  playerLoading = new Promise<void>((resolve, reject) => {
-    if (!document.querySelector(`link[href="${PLAYER_CSS}"]`)) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = PLAYER_CSS;
-      document.head.appendChild(link);
-    }
-    const script = document.createElement("script");
-    script.src = PLAYER_JS;
-    script.onload = () => resolve();
-    script.onerror = () => {
-      playerLoading = null; // allow a later retry instead of caching the failure
-      reject(new Error("Failed to load player"));
-    };
-    document.head.appendChild(script);
-  });
+// asciinema-player is an open-source embeddable player. It's bundled (not
+// fetched from a CDN) so recordings work offline and the app can run under a
+// strict Content-Security-Policy. Loaded on demand as its own chunk so it
+// doesn't weigh down the rest of the app.
+let playerLoading: Promise<typeof import("asciinema-player")> | null = null;
+function loadPlayer() {
+  if (!playerLoading) {
+    playerLoading = Promise.all([
+      import("asciinema-player"),
+      import("asciinema-player/dist/bundle/asciinema-player.css"),
+    ]).then(([mod]) => mod).catch((e) => {
+      playerLoading = null; // allow a retry instead of caching the failure
+      throw e;
+    });
+  }
   return playerLoading;
 }
 
@@ -87,9 +78,8 @@ function PlayerModal({ rec, onClose }: { rec: Recording; onClose: () => void }) 
     let player: any = null;
     let cancelled = false;
     loadPlayer()
-      .then(() => {
+      .then((AsciinemaPlayer) => {
         if (cancelled || !containerRef.current) return;
-        const AsciinemaPlayer = (window as any).AsciinemaPlayer;
         player = AsciinemaPlayer.create(
           `/api/recordings/${rec.id}/cast`,
           containerRef.current,
@@ -138,6 +128,9 @@ export function RecordingsRoute() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [playing, setPlaying] = useState<Recording | null>(null);
+  const { status, fetchStatus } = useVault();
+  const canDelete = isVaultOwner(status);
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
   const recordings = useQuery({
     queryKey: ["recordings"],
@@ -150,7 +143,7 @@ export function RecordingsRoute() {
       toast.success("Recording deleted");
       qc.invalidateQueries({ queryKey: ["recordings"] });
     },
-    onError: () => toast.error("Could not delete recording"),
+    onError: (e: any) => toast.error("Could not delete recording", { description: e?.message }),
   });
 
   const list = recordings.data ?? [];
@@ -206,7 +199,7 @@ export function RecordingsRoute() {
                     <I.Play size={16} />
                   </button>
                 )}
-                <button
+                {canDelete && <button
                   className="rec-icon-btn rec-danger"
                   onClick={() => {
                     if (confirm("Delete this recording? This cannot be undone.")) del.mutate(r.id);
@@ -214,7 +207,7 @@ export function RecordingsRoute() {
                   aria-label="Delete"
                 >
                   <I.Trash size={16} />
-                </button>
+                </button>}
               </div>
             </div>
           ))}

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { BareShell } from "@/components/shell";
 import { useVault } from "@/lib/vault";
+import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
 import type { VaultMode } from "@skiff/shared";
 import "@/styles/team.css";
@@ -24,16 +25,20 @@ export function SetupRoute() {
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [setupToken, setSetupToken] = useState("");
+  const tokenRequired = !!status?.setupTokenRequired;
+  const tokenHeaders: Record<string, string> = tokenRequired ? { "x-skiff-setup-token": setupToken.trim() } : {};
 
   const restoreFromFile = async (file: File) => {
     setError("");
+    if (tokenRequired && !setupToken.trim()) { setError("Enter the setup token first"); return; }
     setBusy(true);
     try {
       const text = await file.text();
       const backup = JSON.parse(text);
       const res = await fetch("/api/settings/restore", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...tokenHeaders },
         body: JSON.stringify(backup),
         credentials: "include",
       });
@@ -41,10 +46,18 @@ export function SetupRoute() {
       if (!data.ok) {
         setError(data.error?.message || "Restore failed");
       } else {
-        // Backup restored; the vault is now initialized in personal mode.
-        // Send them to unlock with their original password.
+        // Personal backups unlock with the original master password; team
+        // backups sign in per member. An old team backup comes back as
+        // personal with a warning worth reading, so keep it on screen longer.
+        const restoredMode = data.data?.mode;
+        const message: string = data.data?.message ?? "Backup restored.";
+        if (restoredMode === "personal" && message.startsWith("Restored as a personal vault")) {
+          toast.warning("Restored with a caveat", { description: message, duration: 20000 });
+        } else {
+          toast.success("Backup restored", { description: message });
+        }
         await fetchStatus();
-        navigate({ to: "/unlock" });
+        navigate({ to: restoredMode === "team" ? "/login" : "/unlock" });
       }
     } catch (e: any) {
       setError(e.message || "Couldn't read that backup file");
@@ -69,7 +82,8 @@ export function SetupRoute() {
 
     setBusy(true);
     try {
-      const result = await setup(password, mode === "team" ? { mode, username: username.trim() } : { mode });
+      const token = tokenRequired ? setupToken.trim() : undefined;
+      const result = await setup(password, mode === "team" ? { mode, username: username.trim(), setupToken: token } : { mode, setupToken: token });
       if (!result.ok) setError(result.error || "Setup failed");
     } finally {
       setBusy(false);
@@ -89,7 +103,7 @@ export function SetupRoute() {
             <div className="tm-setup__eyebrow">Step 1 of 2 · Choose a mode</div>
             <h1 className="tm-setup__title">How will you use Skiff?</h1>
             <p className="tm-setup__sub">
-              This sets how the vault is unlocked and who can access it. You can't switch later, so pick what fits.
+              This sets how the vault is unlocked and who can access it. A personal vault can be upgraded to a team vault later, but not the other way round.
             </p>
 
             <div className="tm-modes">
@@ -113,12 +127,43 @@ export function SetupRoute() {
               />
             </div>
 
+            {status?.insecureTransport && (
+              <div className="tm-login__error" role="alert" style={{ marginTop: 16 }}>
+                <span className="ic"><I.Warn size={13} /></span>
+                <span>Setup won't work over plain HTTP from another computer: your browser would discard the login. Open Skiff over HTTPS, or set SKIFF_INSECURE_HTTP=true on a network you trust.</span>
+              </div>
+            )}
+
+            {tokenRequired && (
+              <div className="tm-field" style={{ marginTop: 16 }}>
+                <label className="tm-field__label">Setup token</label>
+                <div className="tm-input mono">
+                  <span className="lead"><I.Key size={13} /></span>
+                  <input
+                    value={setupToken}
+                    onChange={(e) => setSetupToken(e.target.value)}
+                    placeholder="from the server log"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="tm-field__hint">
+                  <span className="ic"><I.Info size={11} /></span>
+                  Proves you run this server. Find it with <code>docker compose logs skiff</code> (or the terminal running Skiff).
+                </div>
+              </div>
+            )}
+
             <div className="tm-setup__foot">
               <span className="tm-setup__hint">
                 <I.Info size={12} />
                 {mode === "team" ? "You'll create the first admin account next." : "You'll set your master password next."}
               </span>
-              <button className="tm-btn-lg tm-btn-lg--primary" onClick={() => setStep("credentials")}>
+              <button
+                className="tm-btn-lg tm-btn-lg--primary"
+                disabled={tokenRequired && !setupToken.trim()}
+                onClick={() => setStep("credentials")}
+              >
                 Continue <I.ArrowRight size={13} />
               </button>
             </div>

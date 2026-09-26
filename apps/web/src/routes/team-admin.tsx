@@ -213,11 +213,16 @@ function MembersPane() {
 
 // ── Add user modal ──────────────────────────────────────────
 
+/**
+ * Temporary password for a new or reset member: 16 characters from a
+ * cryptographic RNG (~79 bits), grouped for reading aloud, without look-alike
+ * characters. The member is asked to replace it after signing in.
+ */
 function genTempPassword(): string {
-  const words = ["falcon", "otter", "cedar", "harbor", "ember", "quartz", "willow", "raven"];
-  const w = words[Math.floor(Math.random() * words.length)];
-  const n = Math.floor(1000 + Math.random() * 9000);
-  return `temp-${w}-${n}`;
+  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const chars = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  return chars.match(/.{4}/g)!.join("-");
 }
 
 function PwField({ value, onChange, onRegen }: { value: string; onChange: (v: string) => void; onRegen: () => void }) {
@@ -375,6 +380,9 @@ const ACTION_CATEGORY: Record<string, string> = {
   "host.connect": "connect",
   "host.update": "update", "user.reprovision": "update", "vault.setup": "update",
   "user.enable": "update",
+  "settings.idle_timeout": "update", "settings.recording_on": "update",
+  "settings.recording_off": "delete", "vault.backup": "update",
+  "recording.delete": "delete",
   "host.delete": "delete", "user.disable": "delete", "folder.delete": "delete",
 };
 
@@ -446,14 +454,20 @@ function AuditPane() {
 
 export function TeamAdminRoute() {
   const navigate = useNavigate();
-  const { status, loading } = useVault();
+  const { status, loading, fetchStatus } = useVault();
   const [section, setSection] = useState<AdminSection>("members");
 
-  // Guard: must be a signed-in team admin.
-  if (!loading && (!status?.unlocked || status.mode !== "team" || !status.user?.isAdmin)) {
-    navigate({ to: "/" });
-    return null;
-  }
+  // Load status ourselves: opened directly, the store is empty and "who am I"
+  // is unknown (no "You" badge, own account offered for disabling).
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  const allowed = !!status?.unlocked && status.mode === "team" && !!status.user?.isAdmin;
+  // Navigate from an effect, never during render.
+  useEffect(() => {
+    if (!loading && status && !allowed) navigate({ to: "/" });
+  }, [loading, status, allowed, navigate]);
+
+  if (!allowed) return null;
 
   return (
     <AdminShell

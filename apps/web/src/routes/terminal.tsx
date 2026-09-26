@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiDelete } from "@/lib/api";
 import { createTerminalSocket, type TerminalMessage } from "@/lib/ws";
 import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
@@ -49,7 +49,10 @@ export function TerminalRoute() {
   });
   const [reconnectKey, setReconnectKey] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
-  const [pendingFp, setPendingFp] = useState<{ fingerprint: string; hostname: string } | null>(null);
+  const [pendingFp, setPendingFp] = useState<{ fingerprint: string; hostname: string; algorithm?: string } | null>(null);
+  // The server presented a different key than the one pinned for this host.
+  const [mismatch, setMismatch] = useState<{ expected: string; actual: string; algorithm?: string; canReset: boolean } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const host = useQuery({
     queryKey: ["host", hostId],
@@ -120,12 +123,26 @@ export function TerminalRoute() {
   useEffect(() => { endSessionRef.current = endSession; }, [endSession]);
 
   const reconnect = useCallback(() => {
+    setMismatch(null);
+    setConfirmReset(false);
     socketRef.current?.close();
     setConnState("connecting");
     setStatusMsg("Reconnecting…");
     setLatencyMs(null);
     setReconnectKey((k) => k + 1);
   }, []);
+
+  // Forget the pinned key and reconnect, which shows the normal "verify this
+  // new host key" prompt for the key the server has now.
+  const trustNewKey = useCallback(async () => {
+    try {
+      await apiDelete(`/api/hosts/${hostId}/known-host`);
+      toast.info("Old host key forgotten", { description: "Check the new fingerprint before trusting it." });
+      reconnect();
+    } catch (e: any) {
+      toast.error("Couldn't reset the host key", { description: e?.message });
+    }
+  }, [hostId, reconnect]);
 
   const approveFingerprint = useCallback(() => {
     const sock = socketRef.current;
@@ -183,6 +200,29 @@ export function TerminalRoute() {
       try { fitAddon.fit(); } catch { /* ignore */ }
       xtermRef.current = term;
       fitRef.current = fitAddon;
+
+      // Keys Skiff handles itself. Returning false stops xterm from ALSO
+      // sending them to the shell — Ctrl+- used to shrink the font and send
+      // ^_ (readline "undo") at the same time. The window listener above
+      // still sees the event and does the font change.
+      term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        if (e.type !== "keydown") return true;
+        if (e.ctrlKey && e.shiftKey && (e.key === "C" || e.key === "c")) {
+          // Ctrl+Shift+C copies, like desktop terminals (Ctrl+C stays SIGINT).
+          // In Chrome this key would otherwise open DevTools.
+          e.preventDefault();
+          const selection = term.getSelection();
+          if (selection) navigator.clipboard?.writeText(selection).catch(() => {});
+          return false;
+        }
+        if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
+          return false; // let the browser paste; xterm picks up the paste event
+        }
+        if (e.ctrlKey && !e.shiftKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+          return false;
+        }
+        return true;
+      });
 
       // Auto-focus so users can type immediately
       term.focus();
@@ -252,6 +292,13 @@ export function TerminalRoute() {
             }
             break;
           case "error":
+            if (msg.code === "VAULT_LOCKED") {
+              // The login expired or was locked. Any SSH session for this
+              // host is still running on the server; unlocking reattaches it.
+              cancelled = true;
+              navigate({ to: "/unlock" });
+              return;
+            }
             setConnState("error");
             setStatusMsg(msg.message || msg.code || "Error");
             term.writeln(`\r\n\x1b[31m✗ ${msg.message || "Connection error"}\x1b[0m`);
@@ -259,23 +306,33 @@ export function TerminalRoute() {
             break;
           case "fingerprint_new":
             term.writeln(`\r\n\x1b[33m⚠ Unrecognized host key for ${msg.hostname}\x1b[0m`);
-            term.writeln(`  ${msg.fingerprint}`);
+            term.writeln(`  ${msg.algorithm ? msg.algorithm + " " : ""}${msg.fingerprint}`);
             term.writeln("  Verify this matches the server before continuing.\r\n");
-            setPendingFp({ fingerprint: msg.fingerprint || "", hostname: msg.hostname || hostId });
+            setPendingFp({ fingerprint: msg.fingerprint || "", hostname: msg.hostname || hostId, algorithm: msg.algorithm });
             break;
           case "fingerprint_mismatch":
             term.writeln(`\r\n\x1b[31m✗ FINGERPRINT MISMATCH — possible MITM attack\x1b[0m`);
             term.writeln(`  expected: ${msg.expected}`);
             term.writeln(`  actual:   ${msg.actual}`);
-            toast.error("Fingerprint mismatch", { description: "Connection refused for safety. Verify the host manually.", duration: 10000 });
+            setMismatch({
+              expected: msg.expected || "", actual: msg.actual || "",
+              algorithm: msg.algorithm, canReset: !!msg.canReset,
+            });
             break;
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (cancelled) return;
+        if (event.code === 4001) {
+          toast.info("Vault locked", { description: "Your SSH session is still running. Unlock to pick it back up." });
+          navigate({ to: "/unlock" });
+          return;
+        }
         setConnState((s) => s === "error" ? s : "disconnected");
-        setStatusMsg("Disconnected");
+        // Keep a specific reason the server already gave ("opened in another
+        // window", "timed out"); only fall back to a generic one.
+        setStatusMsg((m) => (!m || m === "Connected" || m === "Reattached" || m.endsWith("…")) ? "Disconnected" : m);
         streamReadyRef.current = false;
         if (pingIntervalRef.current) {
           window.clearInterval(pingIntervalRef.current);
@@ -439,15 +496,57 @@ export function TerminalRoute() {
       <div className="term__screen-wrap">
         <div ref={termRef} className="term__screen" />
 
+        {/* Host key changed — takes the place of the generic error overlay */}
+        {mismatch && (
+          <div className="term__overlay">
+            <div className="term__overlay-card" style={{ maxWidth: 520 }}>
+              <div className="term__overlay-icon error"><I.Close size={18} /></div>
+              <div className="term__overlay-title">This server's host key has changed</div>
+              <div className="term__overlay-msg" style={{ lineHeight: 1.5 }}>
+                Skiff refused to connect. Either the server was reinstalled or its keys were
+                regenerated — or someone is intercepting the connection. Don't continue unless you
+                know which.
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, margin: "12px 0", lineHeight: 1.7, wordBreak: "break-all", textAlign: "left" }}>
+                <div><span style={{ color: "var(--fg-2)" }}>trusted:&nbsp;</span>{mismatch.expected}</div>
+                <div><span style={{ color: "var(--fg-2)" }}>now:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>{mismatch.algorithm ? mismatch.algorithm + " " : ""}{mismatch.actual}</div>
+              </div>
+              {confirmReset ? (
+                <>
+                  <div className="term__overlay-msg" style={{ lineHeight: 1.5 }}>
+                    On the server, run <code>ssh-keygen -lf /etc/ssh/ssh_host_{(mismatch.algorithm || "ed25519").replace(/^ssh-/, "")}_key.pub</code> and
+                    check it prints the "now" fingerprint above. Only then continue.
+                  </div>
+                  <div className="term__overlay-actions">
+                    <button type="button" className="btn btn--danger" onClick={trustNewKey}>It matches — forget the old key</button>
+                    <button type="button" className="btn btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <div className="term__overlay-actions">
+                  <button type="button" className="btn btn--secondary" onClick={() => navigate({ to: "/" })}>Back to hosts</button>
+                  {mismatch.canReset
+                    ? <button type="button" className="btn btn--secondary" onClick={() => setConfirmReset(true)}>The server was rebuilt…</button>
+                    : <span style={{ fontSize: 12, color: "var(--fg-2)" }}>Ask a team admin if the server was rebuilt.</span>}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Session-ended overlay */}
-        {(connState === "disconnected" || connState === "error") && (
+        {!mismatch && (connState === "disconnected" || connState === "error") && (
           <div className="term__overlay">
             <div className="term__overlay-card">
               <div className={`term__overlay-icon ${connState}`}>
                 {connState === "error" ? <I.Close size={18} /> : <I.Info size={18} />}
               </div>
               <div className="term__overlay-title">
-                {connState === "error" ? "Connection error" : "Session ended"}
+                {connState === "error"
+                  ? "Connection error"
+                  : /another window/i.test(statusMsg)
+                    ? "Opened in another window"
+                    : "Disconnected"}
               </div>
               <div className="term__overlay-msg">{statusMsg}</div>
               <div className="term__overlay-actions">
@@ -479,7 +578,10 @@ export function TerminalRoute() {
                 background: "var(--bg-2)", border: "1px solid var(--border)",
                 borderRadius: 6, padding: "8px 10px", margin: "12px 0", wordBreak: "break-all",
               }}>
-                {pendingFp.fingerprint}
+                {pendingFp.algorithm ? `${pendingFp.algorithm} ` : ""}{pendingFp.fingerprint}
+              </div>
+              <div className="term__overlay-msg" style={{ fontSize: 12, lineHeight: 1.5 }}>
+                On the server: <code>ssh-keygen -lf /etc/ssh/ssh_host_{(pendingFp.algorithm || "ed25519").replace(/^ssh-/, "")}_key.pub</code>
               </div>
               <div className="term__overlay-actions">
                 <button type="button" className="btn btn--primary" onClick={approveFingerprint}>

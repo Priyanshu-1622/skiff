@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell";
-import { useVault } from "@/lib/vault";
+import { useVault, isVaultOwner } from "@/lib/vault";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
@@ -19,8 +19,13 @@ function readSectionFromHash(): Section {
 
 export function SettingsRoute() {
   const navigate = useNavigate();
-  const { status } = useVault();
+  const { status, fetchStatus } = useVault();
   const [section, setSection] = useState<Section>(readSectionFromHash);
+  const owner = isVaultOwner(status);
+
+  // Opened directly (refresh, bookmark) the store is empty — load it, or the
+  // recording toggle shows "off" and mode-dependent sections go missing.
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
   // Listen for hash changes (e.g. if user clicks back/forward)
   useEffect(() => {
@@ -47,7 +52,7 @@ export function SettingsRoute() {
   const nav = [
     { id: "security" as Section, label: "Security", icon: <I.Lock size={14} /> },
     { id: "import"   as Section, label: "Import",   icon: <I.ArrowRight size={14} /> },
-    { id: "backup"   as Section, label: "Backup",   icon: <I.Server size={14} /> },
+    ...(owner ? [{ id: "backup" as Section, label: "Backup", icon: <I.Server size={14} /> }] : []),
     { id: "about"    as Section, label: "About",    icon: <I.Info size={14} /> },
     // Only offer the team upgrade from a personal vault.
     ...(status?.mode === "personal"
@@ -99,7 +104,7 @@ export function SettingsRoute() {
           <div className="settings-pane__inner">
             {section === "security" && <SecuritySection />}
             {section === "import"   && <ImportSection />}
-            {section === "backup"   && <BackupSection />}
+            {section === "backup"   && owner && <BackupSection />}
             {section === "about"    && <AboutSection />}
             {section === "team"     && <TeamUpgradeSection />}
           </div>
@@ -111,10 +116,15 @@ export function SettingsRoute() {
 
 function SecuritySection() {
   const { status, fetchStatus } = useVault();
+  const owner = isVaultOwner(status);
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
-  const [timeout, setTimeout_] = useState("15");
+  const [timeout, setTimeout_] = useState(String(status?.idleTimeoutMinutes ?? 15));
+  // Show the saved value once the status arrives (it's empty on a fresh load).
+  useEffect(() => {
+    if (status) setTimeout_(String(status.idleTimeoutMinutes));
+  }, [status?.idleTimeoutMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recordingOn = !!status?.recordingEnabled;
   const toggleRecording = useMutation({
@@ -126,10 +136,18 @@ function SecuritySection() {
     onError: (e: any) => toast.error("Couldn't update recording", { description: e.message }),
   });
 
+  // Personal: the master password re-encrypts every credential. Team: each
+  // member only re-seals their own copy of the shared key.
+  const isTeam = status?.mode === "team";
   const changePw = useMutation({
-    mutationFn: () => apiPut("/api/settings/password", { currentPassword: currentPw, newPassword: newPw }),
+    mutationFn: () => isTeam
+      ? apiPost("/api/team/me/password", { currentPassword: currentPw, newPassword: newPw })
+      : apiPut("/api/settings/password", { currentPassword: currentPw, newPassword: newPw }),
     onSuccess: () => {
-      toast.success("Password changed", { description: "All credentials have been re-encrypted." });
+      fetchStatus();
+      toast.success("Password changed", {
+        description: isTeam ? "Your other signed-in browsers were signed out." : "All credentials have been re-encrypted.",
+      });
       setCurrentPw(""); setNewPw(""); setConfirmPw("");
     },
     onError: (e: any) => toast.error("Couldn't change password", { description: e.message }),
@@ -140,7 +158,7 @@ function SecuritySection() {
 
   const saveTimeout = useMutation({
     mutationFn: () => apiPut("/api/settings/idle-timeout", { minutes: timeoutNum }),
-    onSuccess: () => toast.success(`Idle timeout set to ${timeoutNum} min`),
+    onSuccess: () => { toast.success(`Idle timeout set to ${timeoutNum} min`); fetchStatus(); },
     onError: (e: any) => toast.error("Couldn't save timeout", { description: e.message }),
   });
 
@@ -153,13 +171,17 @@ function SecuritySection() {
 
       <div className="s-section">
         <div className="s-section__head">
-          <div className="s-section__title">Master password</div>
+          <div className="s-section__title">{isTeam ? "Your password" : "Master password"}</div>
         </div>
         <div className="s-section__body">
           <div className="s-row stacked">
             <div>
               <div className="s-row__label">Change password</div>
-              <div className="s-row__desc">Re-encrypts all stored credentials with your new password.</div>
+              <div className="s-row__desc">
+                {isTeam
+                  ? "Only changes how you sign in. Other members aren't affected."
+                  : "Re-encrypts all stored credentials with your new password."}
+              </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 400 }}>
               <input className="field input" type="password" placeholder="Current password" value={currentPw} onChange={e => setCurrentPw(e.target.value)}
@@ -183,6 +205,15 @@ function SecuritySection() {
         </div>
       </div>
 
+      {!owner && (
+        <div className="s-section" style={{ marginTop: 14 }}>
+          <div className="s-section__body" style={{ paddingTop: 12, fontSize: 13, color: "var(--fg-2)", lineHeight: 1.6 }}>
+            Auto-lock and session recording are set by your team's admins.
+          </div>
+        </div>
+      )}
+
+      {owner && <>
       <div className="s-section" style={{ marginTop: 14 }}>
         <div className="s-section__head">
           <div className="s-section__title">Auto-lock</div>
@@ -230,11 +261,13 @@ function SecuritySection() {
           </div>
         </div>
       </div>
+      </>}
     </>
   );
 }
 
 function ImportSection() {
+  const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<any[]>([]);
   const [parseMsg, setParseMsg] = useState("");
@@ -257,13 +290,25 @@ function ImportSection() {
   const apply = async () => {
     setBusy(true);
     try {
-      const d = await apiPost<{ imported: number }>("/api/import/apply", {
+      const d = await apiPost<{ imported: number; skipped: string[]; needsCredential: string[] }>("/api/import/apply", {
         configText: text,
         selectedHosts: preview.map(h => h.alias),
       });
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      const skippedNote = d.skipped?.length
+        ? ` ${d.skipped.length} already in your list ${d.skipped.length === 1 ? "was" : "were"} skipped.`
+        : "";
       toast.success(`Imported ${d.imported} host${d.imported !== 1 ? "s" : ""}`, {
-        description: "They're in your host list now.",
+        description: "They're in your host list now." + skippedNote,
       });
+      // ~/.ssh/config never holds passwords and only names key *files*, which
+      // stay on your machine. Say so, rather than letting the first connect fail.
+      if (d.needsCredential?.length) {
+        toast.warning(`Add a password or key to ${d.needsCredential.length === 1 ? "it" : "each one"}`, {
+          description: "Imported hosts don't have credentials yet. Edit a host (⚙) and paste its password or private key before connecting.",
+          duration: 15000,
+        });
+      }
       setPreview([]); setText(""); setParseMsg("");
     } catch (e: any) {
       toast.error("Import failed", { description: e.message });

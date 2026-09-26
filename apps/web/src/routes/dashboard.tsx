@@ -74,6 +74,14 @@ export function DashboardRoute() {
     enabled: !!status?.unlocked,
   });
 
+  // Sidebar counts need every host, not the folder/search view on screen —
+  // otherwise other folders read 0 while you're inside one.
+  const allHosts = useQuery({
+    queryKey: ["hosts", "__all"],
+    queryFn: () => apiGet<any[]>("/api/hosts"),
+    enabled: !!status?.unlocked,
+  });
+
   const folders = useQuery({
     queryKey: ["folders"],
     queryFn: () => apiGet<any[]>("/api/folders"),
@@ -107,13 +115,12 @@ export function DashboardRoute() {
 
   const deleteFolder = useMutation({
     mutationFn: (id: string) => apiDelete(`/api/folders/${id}`),
-    onSuccess: () => {
+    onSuccess: (_d, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ["folders"] });
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
       setFolderToDelete(null);
-      if (activeFolder && !["__starred", null].includes(activeFolder as any)) {
-        setActiveFolder(null);
-      }
+      // Only leave the folder view if it was the folder that got deleted.
+      if (activeFolder === deletedId) setActiveFolder(null);
       toast.success("Folder deleted");
     },
     onError: (error: any) => {
@@ -141,10 +148,11 @@ export function DashboardRoute() {
   });
 
   const hostList = hosts.data ?? [];
+  const everyHost = allHosts.data ?? [];
   const folderList = folders.data ?? [];
   const sidebarFolders = folderList.map((f: any) => ({
     id: f.id, name: f.name,
-    count: hostList.filter((h: any) => h.folder_id === f.id).length,
+    count: everyHost.filter((h: any) => h.folder_id === f.id).length,
   }));
 
   if (loading) return (
@@ -172,8 +180,8 @@ export function DashboardRoute() {
     <AppShell
       topbar={{ searchValue: search, onSearchChange: setSearch, username: "Vault" }}
       sidebar={{
-        totalHosts: (hosts.data ?? []).length,
-        favoritesCount: (hosts.data ?? []).filter((h: any) => h.starred).length,
+        totalHosts: everyHost.length,
+        favoritesCount: everyHost.filter((h: any) => h.starred).length,
         folders: sidebarFolders,
         activeFolderId: activeFolder,
         onSelectFolder: setActiveFolder,
@@ -189,6 +197,18 @@ export function DashboardRoute() {
         username: status?.user?.username,
       }}
     >
+      {status.user?.mustChangePassword && (
+        <div style={{
+          margin: "12px 16px 0", padding: "10px 14px", borderRadius: 7,
+          border: "1px solid var(--border-strong)", background: "var(--bg-2)",
+          display: "flex", alignItems: "center", gap: 12, fontSize: 13,
+        }}>
+          <I.Key size={14} />
+          <span style={{ flex: 1 }}>You're signed in with a temporary password from an admin. Choose your own.</span>
+          <button className="btn btn--primary" onClick={() => navigate({ to: "/settings" })}>Change password</button>
+        </div>
+      )}
+
       {/* Main toolbar */}
       <div className="toolbar">
         <div className="toolbar__breadcrumb">
@@ -560,8 +580,12 @@ function HostDialog({
   const [port, setPort] = useState(String(existing?.port ?? 22));
   const [username, setUsername] = useState(existing?.username ?? "");
   const [folderIdState, setFolderIdState] = useState<string | null>(existing?.folder_id ?? folderId ?? null);
-  const [authMethod, setAuthMethod] = useState<"password" | "key">(existing?.auth_method ?? "password");
+  // "key+passphrase" is still a key as far as the form is concerned.
+  const [authMethod, setAuthMethod] = useState<"password" | "key">(
+    existing ? (existing.auth_method === "password" ? "password" : "key") : "password",
+  );
   const [credValue, setCredValue] = useState("");
+  const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -601,7 +625,9 @@ function HostDialog({
         starred: existing?.starred ?? false,
       };
       if (credValue) {
-        payload.credential = { kind: authMethod, value: credValue };
+        payload.credential = authMethod === "key" && passphrase
+          ? { kind: "key+passphrase", value: credValue, passphrase }
+          : { kind: authMethod, value: credValue };
       }
       if (mode === "create") {
         await apiPost("/api/hosts", payload);
@@ -721,6 +747,18 @@ function HostDialog({
                 />
             }
           </div>
+          {authMethod === "key" && (
+            <div className="field">
+              <label>Key passphrase (only if the key is encrypted)</label>
+              <input
+                type="password"
+                value={passphrase}
+                onChange={e => setPassphrase(e.target.value)}
+                placeholder={mode === "edit" ? "Only needed with a new key" : "Leave blank for an unencrypted key"}
+                autoComplete="new-password"
+              />
+            </div>
+          )}
           {errors.form && <div className="field-error">{errors.form}</div>}
           <div className="dialog__footer">
             <button type="button" className="btn btn--secondary" onClick={() => onClose(false)}>Cancel</button>

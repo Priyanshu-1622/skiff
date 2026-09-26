@@ -36,7 +36,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   return handleResponse<T>(res, path);
 }
 
-export async function apiPost<T = unknown>(path: string, payload?: unknown): Promise<T> {
+export async function apiPost<T = unknown>(path: string, payload?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   // Only send a JSON content-type when there's actually a body. A bodyless
   // POST (e.g. /api/vault/lock) sent with `Content-Type: application/json`
   // is rejected by Fastify with FST_ERR_CTP_EMPTY_JSON_BODY (400) before the
@@ -46,8 +46,8 @@ export async function apiPost<T = unknown>(path: string, payload?: unknown): Pro
     credentials: "include",
     cache: "no-store",
     ...(payload === undefined
-      ? {}
-      : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+      ? { headers: { ...extraHeaders } }
+      : { headers: { "Content-Type": "application/json", ...extraHeaders }, body: JSON.stringify(payload) }),
   });
   return handleResponse<T>(res, path);
 }

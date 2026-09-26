@@ -8,6 +8,8 @@ export interface TerminalMessage {
   actual?: string;
   code?: string;
   t?: number;
+  algorithm?: string;
+  canReset?: boolean;
 }
 
 export function createTerminalSocket(hostId: string): WebSocket {

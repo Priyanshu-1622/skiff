@@ -6,10 +6,20 @@ interface VaultState {
   status: VaultStatus | null;
   loading: boolean;
   fetchStatus: () => Promise<void>;
-  setup: (password: string, opts?: { mode?: VaultMode; username?: string }) => Promise<{ ok: boolean; error?: string }>;
+  setup: (password: string, opts?: { mode?: VaultMode; username?: string; setupToken?: string }) => Promise<{ ok: boolean; error?: string }>;
   unlock: (password: string) => Promise<{ ok: boolean; error?: string }>;
   teamLogin: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   lock: () => Promise<void>;
+}
+
+/**
+ * Vault-wide actions (settings, backup, deleting recordings) belong to the
+ * owner: the one person in personal mode, admins in team mode. Mirrors the
+ * API's requireVaultOwner guard.
+ */
+export function isVaultOwner(status: VaultStatus | null): boolean {
+  if (!status?.unlocked) return false;
+  return status.mode !== "team" || !!status.user?.isAdmin;
 }
 
 export const useVault = create<VaultState>((set, get) => ({
@@ -32,7 +42,7 @@ export const useVault = create<VaultState>((set, get) => ({
         password,
         mode: opts?.mode ?? "personal",
         username: opts?.username,
-      });
+      }, opts?.setupToken ? { "x-skiff-setup-token": opts.setupToken } : undefined);
       await get().fetchStatus();
       return { ok: true };
     } catch (e: any) {
