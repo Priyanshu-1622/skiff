@@ -11,7 +11,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8080",
+        // Follows the API's port, so SKIFF_PORT=3000 pnpm dev just works.
+        target: `http://127.0.0.1:${process.env.SKIFF_PORT || 8080}`,
         ws: true,
       },
     },

@@ -116,6 +116,28 @@ sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d skiff.yourdomain.com
 ```
 
+**Tell Skiff to trust the proxy (both options)**
+
+Behind a proxy, every request reaches Skiff from the proxy's address. Unless
+Skiff knows it may trust the proxy's `X-Forwarded-For` header, all users share
+one rate-limit bucket, one person's wrong passwords slow everyone down, and
+the audit log records the proxy's IP instead of the real one. In `.env`:
+
+```bash
+# Docker: the proxy on the host reaches the container through Docker's bridge.
+SKIFF_TRUST_PROXY=172.16.0.0/12
+# Not in Docker, proxy on the same machine:
+# SKIFF_TRUST_PROXY=127.0.0.1
+```
+
+List only your proxy's address. `SKIFF_TRUST_PROXY=true` trusts the header from
+*anyone* who can reach Skiff directly, letting them fake their IP.
+
+The proxy must also pass the original `Host` header (Caddy does by default;
+the nginx config above sets it). Skiff checks that terminal connections come
+from its own address, and a rewritten `Host` makes that check fail. If you
+can't pass `Host`, list your public URL in `SKIFF_TRUSTED_ORIGINS` instead.
+
 ### 5. Backups
 
 **Automated backup script:**

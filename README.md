@@ -57,7 +57,14 @@ mkdir -p data
 docker compose up -d --build
 ```
 
-Then http://localhost:8080. Back up `./data/` — that's where the encrypted vault lives.
+Then http://localhost:8080. The setup screen asks for a one-time **setup token** —
+it proves you run this server, so nobody else can claim a fresh instance. Get it with:
+
+```bash
+docker compose logs skiff | grep "Setup token"
+```
+
+Back up `./data/` — that's where the encrypted vault lives.
 
 By default it binds to `127.0.0.1` only, so it isn't reachable from the network
 before you've set a master password. Set `HOST_ADDR=0.0.0.0` in `.env` and put
@@ -72,7 +79,7 @@ pnpm install
 pnpm dev
 ```
 
-Then http://localhost:5173. First load asks you to set a master password — that's the vault.
+Then http://localhost:5173. First load asks for the setup token (printed in the `pnpm dev` output) and then a master password — that's the vault.
 
 Requires Node 20+ and pnpm 9+. On Windows you'll need Visual Studio Build Tools because `better-sqlite3` and `argon2` are native. There's a note in Troubleshooting about this.
 
@@ -118,10 +125,9 @@ log. No external identity provider, no cloud.
 
 **It's actually self-hosted.** One `docker compose` command, SQLite, no
 external database. Your credentials never leave your machine and there is no
-telemetry. One caveat worth stating plainly: the recordings player is currently
-loaded from a public CDN, so that one page makes a third-party request. Nothing
-about your vault is sent — but it does mean Recordings won't render on an
-air-gapped install. Vendoring it is on the list.
+telemetry. The web UI makes no third-party requests at all — fonts and the
+recordings player are bundled — so it works on an air-gapped network, and a
+strict Content-Security-Policy enforces that nothing else gets loaded.
 
 ## How it compares
 
@@ -265,15 +271,12 @@ It's a pnpm workspace with two apps and one shared types package. The frontend a
 
 These are real things I've noticed using Skiff. Some are easy fixes I haven't gotten to; some need a redesign.
 
-- **Import doesn't handle `Include` directives.** If your `~/.ssh/config` does `Include ~/.ssh/config.d/*`, those hosts get skipped silently. I'll fix it when I personally need it — right now my config is one file.
+- **Import doesn't follow `Include` directives**, and skips `Match` blocks and wildcard `Host` patterns (they don't describe a single host). Paste included files separately. Imported hosts have no password or key yet — `~/.ssh/config` only names key files — so add one before connecting.
+- **A server restart ends live SSH sessions.** Sessions survive closed tabs, locks and network drops, but they live in the server process.
 - **No folder reordering.** You can create folders and delete them, but you can't drag to reorder or nest existing ones. Plan the hierarchy before you create them, or be prepared to delete and re-create.
 - **Restore is fresh-instance only.** Settings - Backup downloads an encrypted JSON, and a fresh instance can restore it from the setup screen ("Restore from a backup file"). You can't restore *over* an existing vault though — you'd have to start from a clean `data/` directory. Good enough for moving between machines; not an in-place "undo".
 - **Terminal resize is occasionally laggy.** xterm.js sends the new dimensions on resize, but during the resize gesture the output can wrap weirdly for a few frames. Stops looking broken once you let go.
 - **The `.sqlite-shm` and `.sqlite-wal` files.** SQLite in WAL mode creates two sidecar files next to the main DB. They're normal — do **not** delete them while Skiff is running. You'll corrupt the database. Ask me how I know.
-- **The recordings player comes from a CDN.** The asciinema player JS and CSS
-  are pulled from jsDelivr when you open the Recordings page, rather than being
-  bundled. No data leaves your instance, but the request does, and the page
-  won't work fully offline. Being vendored into the build.
 - **First-time docker build is slow.** Native modules (better-sqlite3, argon2) compile from source the first time, which can take 3-5 minutes on a small VPS. After that it's cached.
 
 ## What Skiff doesn't do
@@ -321,9 +324,16 @@ Full version: [SECURITY.md](./SECURITY.md).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SKIFF_COOKIE_SECRET` | random | **Set this in production.** Signs session cookies. |
-| `SKIFF_PORT` | `8080` | API port |
-| `SKIFF_DB_PATH` | `./data/skiff.sqlite` | Where the vault lives |
+| `SKIFF_COOKIE_SECRET` | *(required in production)* | Secret for the cookie layer. `openssl rand -hex 32`. |
+| `SKIFF_SETUP_TOKEN` | random, printed to the log | Token the setup screen asks for before a vault exists. |
+| `SKIFF_TRUST_PROXY` | off | Your reverse proxy's IP/CIDR, so Skiff sees real client IPs. See [DEPLOYMENT.md](docs/DEPLOYMENT.md). |
+| `SKIFF_TRUSTED_ORIGINS` | *(none)* | Extra origins allowed to use the API/terminal, if your proxy rewrites `Host`. |
+| `SKIFF_MAX_SESSIONS_PER_USER` | `20` | Live SSH sessions one person can hold open. |
+| `SKIFF_INSECURE_HTTP` | off | Allow sign-in over plain HTTP from other machines. Trusted networks only. |
+| `SKIFF_DATA_DIR` | `./data` | Where the vault (`skiff.sqlite`) and recordings live. |
+| `SKIFF_PORT` | `8080` | Port the server listens on. |
+| `SKIFF_HOST` | `127.0.0.1` | Address the server listens on (the Docker image uses `0.0.0.0` inside the container). |
+| `HOST_ADDR` / `HOST_PORT` | `127.0.0.1` / `8080` | Docker only: where the port is published on the host. |
 
 <details>
 <summary><b>Troubleshooting</b></summary>
@@ -335,7 +345,7 @@ You need Visual Studio Build Tools with "Desktop development with C++". The stan
 
 ### Port 8080 is already in use
 
-Set `SKIFF_PORT=3000` (or whatever) in `.env`. The Vite dev server's proxy follows it automatically.
+Docker: set `HOST_PORT=3000` in `.env`. Dev: run `SKIFF_PORT=3000 pnpm dev` — the Vite dev server's proxy follows it.
 
 </details>
 

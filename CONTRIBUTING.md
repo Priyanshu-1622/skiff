@@ -43,6 +43,15 @@ pnpm build
 
 This builds the shared package first, then the API, then the web app, in that order (the order matters — the others depend on `@skiff/shared` being compiled). If you change types in `packages/shared`, rebuild it before the consumers will see the changes.
 
+### Tests
+
+```bash
+pnpm typecheck
+pnpm --filter @skiff/api test
+```
+
+The API tests boot the real app against an in-memory SQLite database, so they need the native modules built (Node 20 is what CI uses). Please add a test with any fix: a test that fails before your change and passes after is the most convincing part of a PR. CI also runs `pnpm audit --prod`, so a dependency with a known high-severity vulnerability fails the build.
+
 ## Code standards
 
 - **TypeScript strict mode is on.** Please keep it on. If you're fighting the types, that's usually the design telling you something — reach for `unknown` and narrowing before `any`.

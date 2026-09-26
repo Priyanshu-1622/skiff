@@ -37,7 +37,7 @@ services:
       # FIX: bind to 127.0.0.1 by default so the setup endpoint is not
       # reachable from the network before the vault is initialized.
       # Override by setting HOST_ADDR=0.0.0.0 in .env for reverse-proxy setups.
-      - "${HOST_ADDR:-127.0.0.1}:8080:8080"
+      - "${HOST_ADDR:-127.0.0.1}:${HOST_PORT:-8080}:8080"
     volumes:
       - ./data:/app/data
     environment:
@@ -46,6 +46,9 @@ services:
       SKIFF_DATA_DIR: /app/data
       SKIFF_COOKIE_SECRET: ${SKIFF_COOKIE_SECRET:?required - generate with: openssl rand -hex 32}
       SKIFF_TRUSTED_ORIGINS: ${SKIFF_TRUSTED_ORIGINS:-}
+      SKIFF_SETUP_TOKEN: ${SKIFF_SETUP_TOKEN:-}
+      SKIFF_TRUST_PROXY: ${SKIFF_TRUST_PROXY:-}
+      SKIFF_MAX_SESSIONS_PER_USER: ${SKIFF_MAX_SESSIONS_PER_USER:-}
       NODE_ENV: production
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
