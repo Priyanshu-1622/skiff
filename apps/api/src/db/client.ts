@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export interface DbConfig {
   /** Absolute path to the data directory. Created if it doesn't exist. */
@@ -93,6 +93,15 @@ export function runColumnMigrations(db: Database.Database): void {
     // Existing team vaults get recording on by default; personal stays off.
     db.exec(
       "UPDATE vault_meta SET recording_enabled = 1 WHERE mode = 'team'"
+    );
+  }
+
+  // v4: members holding an admin-issued temporary password are asked to
+  // replace it. Existing accounts start at 0 — we can't know which of their
+  // passwords were temporary.
+  if (!hasColumn("users", "must_change_password")) {
+    db.exec(
+      "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
     );
   }
 }

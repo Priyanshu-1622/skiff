@@ -4,6 +4,7 @@ import {
   createHmac,
   createCipheriv,
   createDecipheriv,
+  timingSafeEqual,
 } from "node:crypto";
 
 const KDF_ITERATIONS = 3;
@@ -52,6 +53,12 @@ export function computeVerifier(vaultKey: Buffer): Buffer {
   return Buffer.from(
     createHmac("sha256", vaultKey).update("skiff-verifier-v1").digest(),
   );
+}
+
+/** Constant-time verifier comparison. */
+export function verifierMatches(computed: Buffer, stored: Buffer | Uint8Array): boolean {
+  const expected = Buffer.from(stored);
+  return computed.length === expected.length && timingSafeEqual(computed, expected);
 }
 
 /**

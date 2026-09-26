@@ -59,8 +59,9 @@ CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 
 -- ─── credentials ───────────────────────────────────────────────────
 -- The only place secrets live. `kind` records what the decrypted blob
--- contains so the SSH layer knows how to use it. `encrypted_blob` is
--- always a libsodium secretbox ciphertext.
+-- contains so the SSH layer knows how to use it. `encrypted_blob` is an
+-- AES-256-GCM ciphertext with its 16-byte auth tag appended; `nonce` is
+-- the 12-byte IV (see crypto/vault.ts).
 
 CREATE TABLE IF NOT EXISTS credentials (
   id TEXT PRIMARY KEY,
@@ -124,7 +125,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
 -- ─── unlock_attempts ───────────────────────────────────────────────
--- Track failed unlock attempts for rate-limiting. Cleared on success.
+-- UNUSED since the per-client backoff in lib/attempt-limiter.ts replaced the
+-- database lockout. Kept so existing databases keep a consistent schema.
 
 CREATE TABLE IF NOT EXISTS unlock_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,6 +164,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
+-- UNUSED — see unlock_attempts above.
 CREATE TABLE IF NOT EXISTS login_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL,

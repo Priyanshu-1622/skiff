@@ -1,15 +1,17 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
-import { generateKdfParams, deriveVaultKey, computeVerifier } from "../crypto/vault.js";
+import { generateKdfParams, deriveVaultKey, computeVerifier, verifierMatches } from "../crypto/vault.js";
 import { generateSharedKey, provisionUser } from "../crypto/team-vault.js";
 import type { SessionStore } from "../crypto/session-store.js";
 import type { Config } from "../config.js";
-import { sessionCookieOptions, clearSessionCookieOptions } from "../lib/cookie.js";
+import { sessionCookieOptions, clearSessionCookieOptions, cookieWouldBeDropped, INSECURE_TRANSPORT_MESSAGE } from "../lib/cookie.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 import { SCHEMA_VERSION } from "../db/client.js";
 import { generateId } from "../lib/id.js";
 import { writeAudit } from "../lib/audit.js";
+import type { SetupGate } from "../lib/setup-token.js";
+import type { AttemptLimiter } from "../lib/attempt-limiter.js";
 
 const PasswordBody = z.object({ password: z.string().min(1).max(256) });
 const SetupBody = z.object({
@@ -22,11 +24,28 @@ const SetupBody = z.object({
 export interface AuthRouteDeps {
   sessionStore: SessionStore;
   config: Config;
+  setupGate: SetupGate;
+  attemptLimiter: AttemptLimiter;
+}
+
+function tooManyAttempts(reply: FastifyReply, waitMs: number) {
+  const seconds = Math.ceil(waitMs / 1000);
+  reply.header("Retry-After", String(seconds));
+  return reply.code(429).send(err(
+    ApiErrorCode.RATE_LIMITED,
+    `Too many wrong passwords from this device. Try again in ${seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)} min`}.`,
+  ));
 }
 
 export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
   (deps) => async (app) => {
-    const { sessionStore, config } = deps;
+    const { sessionStore, config, setupGate, attemptLimiter } = deps;
+
+    const mustChange = (userId: string): boolean => {
+      const row = app.skiffDb.raw.prepare("SELECT must_change_password FROM users WHERE id = ?").get(userId) as
+        | { must_change_password: number } | undefined;
+      return row?.must_change_password === 1;
+    };
 
     app.get("/api/vault/status", async (req, reply) => {
       // Never let the browser (or an intermediate proxy) cache this — a
@@ -44,7 +63,9 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
         mode: meta?.mode ?? "personal",
         idleTimeoutMinutes: meta?.idle_timeout_minutes ?? 15,
         recordingEnabled: !!meta?.recording_enabled,
-        user: entry?.user ?? null,
+        setupTokenRequired: !meta && setupGate.required,
+        insecureTransport: cookieWouldBeDropped(req, config),
+        user: entry?.user ? { ...entry.user, mustChangePassword: mustChange(entry.user.id) } : null,
       });
     });
 
@@ -54,7 +75,13 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
       if (existing) {
         return reply.code(409).send(err(ApiErrorCode.VALIDATION_FAILED, "Vault already initialized"));
       }
+      if (!setupGate.check(req)) {
+        return reply.code(403).send(err(ApiErrorCode.FORBIDDEN, "Setup token missing or incorrect. It is printed in the server log (docker compose logs skiff)."));
+      }
 
+      if (cookieWouldBeDropped(req, config)) {
+        return reply.code(400).send(err(ApiErrorCode.INSECURE_TRANSPORT, INSECURE_TRANSPORT_MESSAGE));
+      }
       const body = SetupBody.parse(req.body);
 
       if (body.mode === "team") {
@@ -122,12 +149,14 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
           return reply.code(400).send(err(ApiErrorCode.WRONG_MODE, "This is a team vault — sign in with your username"));
         }
 
-        const recentFails = db
-          .prepare("SELECT COUNT(*) as cnt FROM unlock_attempts WHERE succeeded = 0 AND attempted_at > datetime('now', '-5 minutes')")
-          .get() as { cnt: number };
-        if (recentFails.cnt >= 5) {
-          return reply.code(429).send(err(ApiErrorCode.RATE_LIMITED, "Too many failed attempts. Try again later."));
+        // Backoff is per client, so someone guessing from elsewhere can never
+        // lock the owner out of their own vault.
+        if (cookieWouldBeDropped(req, config)) {
+          return reply.code(400).send(err(ApiErrorCode.INSECURE_TRANSPORT, INSECURE_TRANSPORT_MESSAGE));
         }
+        const limiterKey = `unlock:${req.ip}`;
+        const waitMs = attemptLimiter.retryAfterMs(limiterKey);
+        if (waitMs > 0) return tooManyAttempts(reply, waitMs);
 
         const body = PasswordBody.parse(req.body);
         const vaultKey = await deriveVaultKey(body.password, {
@@ -138,20 +167,12 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
           parallelism: meta.kdf_parallelism,
         });
 
-        const verifier = computeVerifier(vaultKey);
-        const valid = Buffer.from(verifier).equals(Buffer.from(meta.verifier));
-        db.prepare("INSERT INTO unlock_attempts (attempted_at, succeeded) VALUES (datetime('now'), ?)").run(valid ? 1 : 0);
-        // Keep the table from growing forever — drop rows older than a day.
-        db.prepare("DELETE FROM unlock_attempts WHERE attempted_at < datetime('now', '-1 day')").run();
-
-        if (!valid) {
+        if (!verifierMatches(computeVerifier(vaultKey), meta.verifier)) {
           vaultKey.fill(0);
+          attemptLimiter.recordFailure(limiterKey);
           return reply.code(401).send(err(ApiErrorCode.INVALID_PASSWORD, "Incorrect password"));
         }
-
-        // A successful unlock clears prior failures so a legitimate user isn't
-        // locked out by stale attempts (mirrors the team login path).
-        db.prepare("DELETE FROM unlock_attempts WHERE succeeded = 0").run();
+        attemptLimiter.recordSuccess(limiterKey);
 
         const sessionId = sessionStore.create(vaultKey);
         reply.setCookie("skiff_session", sessionId, sessionCookieOptions(config));
@@ -162,6 +183,8 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
     app.post("/api/vault/lock", async (req, reply) => {
       const sessionId = req.cookies?.skiff_session;
       if (sessionId) {
+        const user = sessionStore.getEntry(sessionId)?.user;
+        if (user) writeAudit(app.skiffDb.raw, { user, action: "logout", ip: req.ip });
         sessionStore.destroy(sessionId);
       }
       // Clear with the same attributes the cookie was set with, otherwise the

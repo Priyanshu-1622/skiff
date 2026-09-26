@@ -23,6 +23,7 @@ import {
   generateKdfParams,
   deriveVaultKey,
   computeVerifier,
+  verifierMatches,
   type KdfParams,
 } from "./vault.js";
 
@@ -102,7 +103,7 @@ export async function unlockSharedKey(
 ): Promise<Buffer | null> {
   const kek = await deriveVaultKey(password, kdf);
   const verifier = computeVerifier(kek);
-  if (!verifier.equals(expectedVerifier)) {
+  if (!verifierMatches(verifier, expectedVerifier)) {
     kek.fill(0);
     return null;
   }

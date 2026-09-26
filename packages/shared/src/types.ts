@@ -31,6 +31,8 @@ export interface TeamUser {
   id: string;
   username: string;
   isAdmin: boolean;
+  /** Still using an admin-issued temporary password. */
+  mustChangePassword?: boolean;
 }
 
 export interface VaultStatus {
@@ -38,6 +40,10 @@ export interface VaultStatus {
   unlocked: boolean;
   idleTimeoutMinutes: number;
   recordingEnabled: boolean;
+  /** Before a vault exists: setup/restore must send the token from the server log. */
+  setupTokenRequired?: boolean;
+  /** Signing in here would fail: plain HTTP + Secure cookie (see cookieWouldBeDropped). */
+  insecureTransport?: boolean;
   mode: VaultMode;
   user: TeamUser | null;
 }
@@ -79,6 +85,7 @@ export const ApiErrorCode = {
   FORBIDDEN: "FORBIDDEN",
   CONFLICT: "CONFLICT",
   WRONG_MODE: "WRONG_MODE",
+  INSECURE_TRANSPORT: "INSECURE_TRANSPORT",
 } as const;
 
 export type ApiErrorCode = (typeof ApiErrorCode)[keyof typeof ApiErrorCode];

@@ -21,6 +21,8 @@ import { importRoutes } from "./routes/import.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { SessionStore } from "./crypto/session-store.js";
 import { SessionManager } from "./lib/session-manager.js";
+import { createSetupGate } from "./lib/setup-token.js";
+import { AttemptLimiter } from "./lib/attempt-limiter.js";
 import { err } from "./lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 import { ZodError } from "zod";
@@ -63,7 +65,11 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       : true,
     disableRequestLogging: false,
     bodyLimit: 1024 * 1024, // 1 MB; ssh keys are well under this
-    trustProxy: false,
+    // A hop count ("trust the nearest N proxies") becomes a function, which is
+    // how Fastify 5 accepts it.
+    trustProxy: typeof config.trustProxy === "number"
+      ? ((hops: number) => (_addr: string, hop: number) => hop < hops)(config.trustProxy)
+      : (config.trustProxy ?? false),
   });
 
   const db = opts.db ?? openDatabase({ dataDir: config.dataDir });
@@ -72,8 +78,34 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     db.close();
   });
 
+  // Each authenticated request holds its own copy of the vault key
+  // (auth-middleware); don't leave it lying in memory after the response.
+  app.addHook("onResponse", async (req) => {
+    req.vaultKey?.fill(0);
+  });
+
+  // Strict CSP: everything comes from Skiff itself. The UI has no inline
+  // scripts and makes no third-party requests (fonts and the recordings
+  // player are bundled). 'unsafe-inline' for styles covers React's style={}
+  // attributes; 'wasm-unsafe-eval' lets the recordings player run its
+  // WebAssembly terminal emulator. frame-ancestors blocks clickjacking.
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        fontSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        workerSrc: ["'self'", "blob:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
   });
 
@@ -177,7 +209,13 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   ).get() as { idle_timeout_minutes: number } | undefined;
   const idleTimeout = vaultMeta?.idle_timeout_minutes ?? 15;
   const sessionStore = new SessionStore(idleTimeout);
+  const setupGate = createSetupGate({
+    configured: config.setupToken,
+    vaultInitialized: !!vaultMeta,
+    log: app.log,
+  });
   const sessionManager = new SessionManager();
+  const attemptLimiter = new AttemptLimiter();
 
   app.addHook("onClose", async () => {
     sessionStore.close();
@@ -186,12 +224,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   const startedAt = new Date();
   await app.register(healthRoute({ schemaVersion: SCHEMA_VERSION, startedAt }));
-  await app.register(authRoutes({ sessionStore, config }));
-  await app.register(teamRoutes({ sessionStore, config }));
+  await app.register(authRoutes({ sessionStore, config, setupGate, attemptLimiter }));
+  await app.register(teamRoutes({ sessionStore, sessionManager, config, attemptLimiter }));
   await app.register(hostRoutes({ sessionStore }));
-  await app.register(terminalRoutes({ sessionStore, sessionManager, dataDir: config.dataDir }));
+  await app.register(terminalRoutes({ sessionStore, sessionManager, dataDir: config.dataDir, config }));
   await app.register(importRoutes({ sessionStore }));
-  await app.register(settingsRoutes({ sessionStore, config }));
+  await app.register(settingsRoutes({ sessionStore, sessionManager, config, setupGate }));
   await app.register(recordingsRoutes({ sessionStore, sessionManager, dataDir: config.dataDir }));
 
   return app;
