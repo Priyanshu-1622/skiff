@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { createReadStream } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { stat, unlink, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SessionStore } from "../crypto/session-store.js";
 import type { SessionManager } from "../lib/session-manager.js";
@@ -8,6 +8,7 @@ import { requireUnlocked, requireVaultOwner } from "../lib/auth-middleware.js";
 import { writeAudit } from "../lib/audit.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
+import { unwrapDataKey, openChunks } from "../crypto/data-keys.js";
 
 export interface RecordingsRouteDeps {
   sessionStore: SessionStore;
@@ -85,6 +86,33 @@ export const recordingsRoutes: (deps: RecordingsRouteDeps) => FastifyPluginAsync
       const rec = getAccessibleRecording(req, id);
       if (!rec) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Recording not found"));
 
+      // Encrypted recording: unwrap its session key with this login's vault
+      // key and decrypt. A partial last chunk (crash mid-write) is dropped;
+      // everything before it plays.
+      if (rec.format === "enc") {
+        const k = app.skiffDb.raw.prepare("SELECT wrapped_key w, nonce n FROM session_keys WHERE id = ?")
+          .get(rec.key_id) as { w: Buffer; n: Buffer } | undefined;
+        if (!k) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Recording key missing"));
+        let file: Buffer;
+        try {
+          file = await readFile(join(recordingsDir, `${id}.cast.enc`));
+        } catch {
+          return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Recording file not found"));
+        }
+        let dataKey: Buffer | null = null;
+        try {
+          dataKey = unwrapDataKey(k.w, k.n, req.vaultKey);
+          const { plain } = openChunks(dataKey, id, file);
+          reply.header("Content-Type", "application/x-asciicast");
+          reply.header("Cache-Control", "private, no-store");
+          return reply.send(plain);
+        } catch {
+          return reply.code(500).send(err(ApiErrorCode.INTERNAL, "Recording could not be decrypted"));
+        } finally {
+          dataKey?.fill(0);
+        }
+      }
+
       const filePath = join(recordingsDir, `${id}.cast`);
       try {
         await stat(filePath); // 404 if the file is missing despite the row
@@ -114,7 +142,9 @@ export const recordingsRoutes: (deps: RecordingsRouteDeps) => FastifyPluginAsync
       }
 
       db.prepare("DELETE FROM session_recordings WHERE id = ?").run(id);
-      try { await unlink(join(recordingsDir, `${id}.cast`)); } catch { /* file already gone */ }
+      for (const name of [`${id}.cast`, `${id}.cast.enc`]) {
+        try { await unlink(join(recordingsDir, name)); } catch { /* file already gone */ }
+      }
 
       writeAudit(db, {
         user: req.sessionUser, action: "recording.delete",

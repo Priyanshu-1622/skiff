@@ -12,6 +12,7 @@ import { readFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionRecorder } from "./recorder.js";
+import { openChunks, newDataKey } from "../crypto/data-keys.js";
 
 function tmp() {
   return mkdtempSync(join(tmpdir(), "skiff-rec-"));
@@ -132,6 +133,63 @@ test("resizes are recorded as asciicast 'r' events", async () => {
     assert.equal(ev[2], "100x30");
   } finally {
     await new Promise((r) => setTimeout(r, 30));
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("with a key, the recording on disk is encrypted and decrypts to valid asciicast", async () => {
+  const dir = tmp();
+  try {
+    const key = newDataKey();
+    const rec = SessionRecorder.create({ dir, id: "rec_enc", cols: 90, rows: 30, key });
+    rec.writeOutput(Buffer.from("SECRET-OUTPUT-42"));
+    rec.finalize();
+    await rec.closed;
+    const raw = readFileSync(join(dir, "rec_enc.cast.enc"));
+    assert.ok(!raw.includes(Buffer.from("SECRET-OUTPUT")));
+    const { plain, truncated } = openChunks(key, "rec_enc", raw);
+    assert.equal(truncated, false);
+    const lines = plain.toString().trim().split("\n").map((l) => JSON.parse(l));
+    assert.equal(lines[0].width, 90);
+    assert.equal(lines[1][2], "SECRET-OUTPUT-42");
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("encrypted recording keeps writing after the vault key is gone (uses its own key)", async () => {
+  const dir = tmp();
+  try {
+    const key = newDataKey();
+    const copy = Buffer.from(key);
+    const rec = SessionRecorder.create({ dir, id: "rec_lock", cols: 80, rows: 24, key });
+    rec.writeOutput(Buffer.from("before lock "));
+    key.fill(0); // the caller's buffer being wiped must not matter: the recorder keeps its own copy
+    rec.writeOutput(Buffer.from("after lock"));
+    rec.finalize();
+    await rec.closed;
+    const text = openChunks(copy, "rec_lock", readFileSync(join(dir, "rec_lock.cast.enc"))).plain.toString();
+    assert.ok(text.includes("before lock") && text.includes("after lock"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("a long encrypted recording is written in several chunks, all readable", async () => {
+  const dir = tmp();
+  try {
+    const key = newDataKey();
+    const rec = SessionRecorder.create({ dir, id: "rec_big", cols: 80, rows: 24, key });
+    for (let i = 0; i < 3000; i++) rec.writeOutput(Buffer.from(`line ${i} ${"x".repeat(40)}\r\n`));
+    rec.finalize();
+    await rec.closed;
+    const raw = readFileSync(join(dir, "rec_big.cast.enc"));
+    const { plain, truncated } = openChunks(key, "rec_big", raw);
+    assert.equal(truncated, false);
+    const text = plain.toString();
+    assert.ok(text.includes("line 0 ") && text.includes("line 2999 "));
+    assert.ok(raw.length > 3 * 32 * 1024, "more than one 32 KB chunk was written");
+  } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });

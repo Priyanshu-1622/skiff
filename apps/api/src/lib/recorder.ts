@@ -1,6 +1,11 @@
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { sealChunk } from "../crypto/data-keys.js";
+
+/** Encrypted recordings are flushed in chunks of about this size, or every 2 s. */
+const CHUNK_BYTES = 32 * 1024;
+const CHUNK_FLUSH_MS = 2000;
 
 /**
  * Records a terminal session to disk in asciicast v2 format — the open
@@ -16,6 +21,11 @@ import { StringDecoder } from "node:string_decoder";
  *
  * Recording is strictly best-effort: a write failure must never disrupt the
  * live SSH session, so every call is guarded by the caller.
+ *
+ * With a `key`, the file is `<id>.cast.enc`: the same asciicast lines, sealed
+ * in AES-GCM chunks (crypto/data-keys.ts) bound to the recording id and
+ * position. A crash loses at most the last ~2 s of unflushed output; everything
+ * already written still decrypts.
  */
 export class SessionRecorder {
   private stream: WriteStream | null = null;
@@ -27,12 +37,20 @@ export class SessionRecorder {
   // both halves into U+FFFD; the decoder carries the partial bytes over.
   private decoder = new StringDecoder("utf8");
   readonly filePath: string;
+  private readonly id: string;
+  /** Own copy of the session data key (zeroed on finalize); null = plaintext. */
+  private key: Buffer | null = null;
+  private chunkIndex = 0;
+  private pending: string[] = [];
+  private pendingBytes = 0;
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
   /** Resolves once the file is fully written and closed (or failed). */
   readonly closed: Promise<void>;
   private markClosed!: () => void;
 
-  private constructor(filePath: string) {
+  private constructor(filePath: string, id: string) {
     this.filePath = filePath;
+    this.id = id;
     this.closed = new Promise((resolve) => { this.markClosed = resolve; });
   }
 
@@ -49,10 +67,17 @@ export class SessionRecorder {
     cols: number;
     rows: number;
     title?: string;
+    /** Session data key: when given, the recording is written encrypted. */
+    key?: Buffer;
   }): SessionRecorder {
     mkdirSync(opts.dir, { recursive: true });
-    const filePath = join(opts.dir, `${opts.id}.cast`);
-    const rec = new SessionRecorder(filePath);
+    const filePath = join(opts.dir, opts.key ? `${opts.id}.cast.enc` : `${opts.id}.cast`);
+    const rec = new SessionRecorder(filePath, opts.id);
+    if (opts.key) {
+      rec.key = Buffer.from(opts.key); // own copy: the caller may wipe theirs
+      rec.flushTimer = setInterval(() => rec.flushChunk(), CHUNK_FLUSH_MS);
+      rec.flushTimer.unref?.();
+    }
     rec.stream = createWriteStream(filePath, { flags: "w" });
     // An I/O error (disk full, permissions) must not crash the process.
     rec.stream.on("error", () => { rec.finalized = true; rec.stream = null; rec.markClosed(); });
@@ -90,7 +115,23 @@ export class SessionRecorder {
   }
 
   private writeLine(line: string): void {
+    if (this.key) {
+      this.pending.push(line + "\n");
+      this.pendingBytes += line.length + 1;
+      if (this.pendingBytes >= CHUNK_BYTES) this.flushChunk();
+      return;
+    }
     try { this.stream?.write(line + "\n"); }
+    catch { /* best-effort; never throw into the session path */ }
+  }
+
+  /** Seal whatever is pending into the next chunk of the encrypted file. */
+  private flushChunk(): void {
+    if (!this.key || !this.stream || this.pending.length === 0) return;
+    const plain = Buffer.from(this.pending.join(""), "utf8");
+    this.pending = [];
+    this.pendingBytes = 0;
+    try { this.stream.write(sealChunk(this.key, this.chunkIndex++, this.id, plain)); }
     catch { /* best-effort; never throw into the session path */ }
   }
 
@@ -100,9 +141,12 @@ export class SessionRecorder {
     if (!this.finalized && this.stream) {
       const tail = this.decoder.end();
       if (tail) this.writeLine(JSON.stringify([this.elapsed(), "o", tail]));
+      this.flushChunk();
+      if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
       this.finalized = true;
       try { this.stream.end(); } catch { /* ignore */ }
       this.stream = null;
+      this.key?.fill(0);
     }
     return { durationMs, bytes: this.bytes };
   }
