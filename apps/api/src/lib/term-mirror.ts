@@ -128,6 +128,53 @@ export class TermMirror {
     return this.guard(() => this.term.buffer.active.cursorX, 0);
   }
 
+  /**
+   * The line immediately above the cursor, right-trimmed — the line a
+   * just-applied "\n" moved the cursor away from. Command text usually
+   * arrives as "<echoed command>\n" in one write, so by the time anything
+   * downstream can react, the cursor has already moved to the next
+   * (still-empty) line; this reads the line that a plain cursorLine()
+   * would now miss.
+   */
+  lineAbove(): string {
+    return this.guard(() => {
+      const buf = this.term.buffer.active;
+      const row = buf.baseY + buf.cursorY - 1;
+      if (row < 0) return "";
+      return (buf.getLine(row)?.translateToString(true) ?? "").replace(/\s+$/, "");
+    }, "");
+  }
+
+  /** The cursor's absolute row — grows with scrollback, stable across a resize's viewport reflow relative to lineStartingAt's own reads. */
+  cursorRow(): number {
+    return this.guard(() => this.term.buffer.active.baseY + this.term.buffer.active.cursorY, 0);
+  }
+
+  /**
+   * The logical line starting at absolute row `row`, following any wrapped
+   * continuation rows into one string, right-trimmed. Anchoring a read to
+   * a row captured earlier (e.g. via cursorRow() at the moment typing
+   * began) is more robust than re-deriving "which row is this" from the
+   * cursor's current position, and — unlike cursorLine() — reads the full
+   * command even when it wrapped past one row.
+   */
+  lineStartingAt(row: number): string {
+    return this.guard(() => {
+      const buf = this.term.buffer.active;
+      let text = "";
+      let r = row;
+      for (;;) {
+        const line = buf.getLine(r);
+        if (!line) break;
+        text += line.translateToString(false);
+        const next = buf.getLine(r + 1);
+        if (next?.isWrapped) { r++; continue; }
+        break;
+      }
+      return text.replace(/\s+$/, "");
+    }, "");
+  }
+
   isAltScreen(): boolean {
     return this.guard(() => this.term.buffer.active.type === "alternate", false);
   }

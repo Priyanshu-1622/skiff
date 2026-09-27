@@ -117,3 +117,46 @@ test("resize clamps nonsense sizes and never throws", async () => {
   assert.equal(m.cursorLine(), "ok");
   m.dispose();
 });
+
+test("lineAbove reads the line a just-applied newline moved the cursor away from", async () => {
+  const m = new TermMirror({ cols: 40, rows: 5 });
+  m.write("deploy@web-1:~$ whoami\r\n");
+  await m.flush();
+  assert.equal(m.cursorLine(), "", "cursor is now on the new, empty line");
+  assert.equal(m.lineAbove(), "deploy@web-1:~$ whoami");
+  m.dispose();
+});
+
+test("lineAbove is empty on the very first line (nothing above it)", async () => {
+  const m = new TermMirror({ cols: 40, rows: 5 });
+  assert.equal(m.lineAbove(), "");
+  m.dispose();
+});
+
+test("cursorRow reports the cursor's absolute row, following scrollback", async () => {
+  const m = new TermMirror({ cols: 10, rows: 3, scrollback: 50 });
+  assert.equal(m.cursorRow(), 0);
+  m.write("a\r\nb\r\nc\r\nd\r\n"); // scrolls the 3-row viewport
+  await m.flush();
+  const row = m.cursorRow();
+  assert.ok(row > 0, "row is an absolute index that keeps growing with scrollback");
+  m.dispose();
+});
+
+test("lineStartingAt reads a single unwrapped row exactly like cursorLine would", async () => {
+  const m = new TermMirror({ cols: 40, rows: 5 });
+  m.write("deploy@web-1:~$ whoami");
+  await m.flush();
+  const row = m.cursorRow();
+  assert.equal(m.lineStartingAt(row), "deploy@web-1:~$ whoami");
+  m.dispose();
+});
+
+test("lineStartingAt follows wrapped continuation rows into one logical line", async () => {
+  const m = new TermMirror({ cols: 10, rows: 5 });
+  const promptRow = m.cursorRow();
+  m.write("0123456789ABCDEFGHIJ"); // 20 chars into a 10-col terminal: wraps across 2 rows
+  await m.flush();
+  assert.equal(m.lineStartingAt(promptRow), "0123456789ABCDEFGHIJ");
+  m.dispose();
+});
