@@ -7,6 +7,7 @@ import { type SessionManager, ownerKeyFor } from "../lib/session-manager.js";
 import type { Config } from "../config.js";
 import { sessionCookieOptions } from "../lib/cookie.js";
 import { requireUnlocked, requireVaultOwner } from "../lib/auth-middleware.js";
+import { unwrapDataKey, wrapDataKey } from "../crypto/data-keys.js";
 import { writeAudit } from "../lib/audit.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
@@ -60,12 +61,31 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
       const newVerifier = computeVerifier(newKey);
       const creds = db.prepare("SELECT * FROM credentials").all() as any[];
       const updateCred = db.prepare("UPDATE credentials SET nonce = ?, encrypted_blob = ? WHERE id = ?");
+      // Every session's own key (recordings, later memory) and every server's
+      // file key are wrapped under the vault key too — they must move with it,
+      // or a session/server sealed under the old password becomes unreadable.
+      const sessionKeyRows = db.prepare("SELECT id, wrapped_key, nonce FROM session_keys").all() as any[];
+      const updateSessionKey = db.prepare("UPDATE session_keys SET wrapped_key = ?, nonce = ? WHERE id = ?");
+      const serverRows = db.prepare("SELECT id, file_key_wrapped, file_key_nonce FROM servers").all() as any[];
+      const updateServerKey = db.prepare("UPDATE servers SET file_key_wrapped = ?, file_key_nonce = ? WHERE id = ?");
 
       db.transaction(() => {
         for (const cred of creds) {
           const plaintext = decrypt(Buffer.from(cred.encrypted_blob), Buffer.from(cred.nonce), currentKey);
           const { nonce, ciphertext } = encrypt(plaintext, newKey);
           updateCred.run(nonce, ciphertext, cred.id);
+        }
+        for (const row of sessionKeyRows) {
+          const dataKey = unwrapDataKey(Buffer.from(row.wrapped_key), Buffer.from(row.nonce), currentKey);
+          const { nonce, wrapped } = wrapDataKey(dataKey, newKey);
+          dataKey.fill(0);
+          updateSessionKey.run(wrapped, nonce, row.id);
+        }
+        for (const row of serverRows) {
+          const fileKey = unwrapDataKey(Buffer.from(row.file_key_wrapped), Buffer.from(row.file_key_nonce), currentKey);
+          const { nonce, wrapped } = wrapDataKey(fileKey, newKey);
+          fileKey.fill(0);
+          updateServerKey.run(wrapped, nonce, row.id);
         }
         db.prepare(
           `UPDATE vault_meta SET kdf_salt=?, kdf_iterations=?, kdf_memory_kib=?, kdf_parallelism=?, verifier=? WHERE id=1`
@@ -127,11 +147,25 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         shared_key_blob: u.shared_key_blob ? Buffer.from(u.shared_key_blob).toString("base64") : null,
         shared_key_nonce: u.shared_key_nonce ? Buffer.from(u.shared_key_nonce).toString("base64") : null,
       }));
+      // Servers and session keys: without these a restored vault can still
+      // unlock, but every existing recording (and later, memory) is
+      // unreadable — the key that seals them never leaves this file.
+      const servers = (db.prepare("SELECT * FROM servers").all() as any[]).map((s) => ({
+        ...s,
+        file_key_wrapped: Buffer.from(s.file_key_wrapped).toString("base64"),
+        file_key_nonce: Buffer.from(s.file_key_nonce).toString("base64"),
+      }));
+      const sessionKeys = (db.prepare("SELECT * FROM session_keys").all() as any[]).map((k) => ({
+        ...k,
+        wrapped_key: Buffer.from(k.wrapped_key).toString("base64"),
+        nonce: Buffer.from(k.nonce).toString("base64"),
+      }));
       return ok({
         version: 2,
         exportedAt: new Date().toISOString(),
         vaultMeta: normalizedMeta,
         users,
+        servers, sessionKeys,
         folders, hosts,
         credentials: credentials.map((c: any) => ({
           ...c,
@@ -262,6 +296,21 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           must_change_password: z.number().optional(),
           created_at: z.string().optional(),
         })).default([]),
+        servers: z.array(z.object({
+          id: z.string().min(1),
+          fingerprint: z.string().min(1),
+          algorithm: z.string().min(1),
+          first_seen_at: z.string().optional(),
+          previous_server_id: z.string().nullable().optional(),
+          file_key_wrapped: b64,
+          file_key_nonce: b64,
+        })).default([]),
+        sessionKeys: z.array(z.object({
+          id: z.string().min(1),
+          wrapped_key: b64,
+          nonce: b64,
+          created_at: z.string().optional(),
+        })).default([]),
         folders: z.array(z.any()).default([]),
         hosts: z.array(z.any()).default([]),
         credentials: z.array(z.any()).default([]),
@@ -316,6 +365,21 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           }
         }
 
+        // Before hosts: hosts.server_id references servers(id).
+        for (const s of body.servers) {
+          db.prepare(
+            `INSERT INTO servers (id, fingerprint, algorithm, first_seen_at, previous_server_id, file_key_wrapped, file_key_nonce)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            s.id, s.fingerprint, s.algorithm, s.first_seen_at ?? new Date().toISOString(),
+            s.previous_server_id ?? null,
+            Buffer.from(s.file_key_wrapped, "base64"), Buffer.from(s.file_key_nonce, "base64"),
+          );
+        }
+        for (const k of body.sessionKeys) {
+          db.prepare("INSERT INTO session_keys (id, wrapped_key, nonce, created_at) VALUES (?, ?, ?, ?)")
+            .run(k.id, Buffer.from(k.wrapped_key, "base64"), Buffer.from(k.nonce, "base64"), k.created_at ?? new Date().toISOString());
+        }
         for (const f of body.folders) {
           db.prepare("INSERT INTO folders (id, parent_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)")
             .run(f.id, f.parent_id ?? null, f.name, f.position ?? 0, f.created_at ?? new Date().toISOString());
@@ -326,13 +390,13 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         }
         for (const h of body.hosts) {
           db.prepare(
-            `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, created_at, last_connected_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, server_id, created_at, last_connected_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             h.id, h.folder_id ?? null, h.label, h.hostname, h.port, h.username,
             h.auth_method, h.credential_id ?? null,
             typeof h.tags === "string" ? h.tags : JSON.stringify(h.tags ?? []),
-            h.starred ? 1 : 0, h.created_at ?? new Date().toISOString(), h.last_connected_at ?? null,
+            h.starred ? 1 : 0, h.server_id ?? null, h.created_at ?? new Date().toISOString(), h.last_connected_at ?? null,
           );
         }
         for (const k of body.knownHosts) {

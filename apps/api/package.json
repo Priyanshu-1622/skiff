@@ -20,6 +20,8 @@
     "@fastify/static": "^10.1.5",
     "@fastify/websocket": "^11.3.1",
     "@skiff/shared": "workspace:*",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
     "argon2": "^0.41.1",
     "better-sqlite3": "^11.3.0",
     "fastify": "^5.12.5",
@@ -32,6 +34,7 @@
     "@types/ssh2": "^1.15.1",
     "pino-pretty": "^11.2.2",
     "tsx": "^4.16.5",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "ws": "^8.21.0"
   }
 }

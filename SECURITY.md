@@ -37,9 +37,10 @@ vault key --AES-256-GCM--> each credential, stored as (nonce, ciphertext)
 - The password itself is **never stored**. What's stored is an **HMAC verifier** — a keyed hash of the vault key. On unlock, Skiff derives the key from your input, computes the verifier, and compares it to the stored one. A match means the password was right, without the server ever holding the password or being able to reverse the verifier.
 - While unlocked, the vault key sits in server memory only, keyed to your session. It is zeroed on lock and on idle timeout, and is never written to disk. Each request works on its own copy of the key, which is zeroed when the response is sent — so locking mid-request can't leave a half-finished operation using a wiped key.
 
-**Encrypted:** SSH passwords, private keys, key passphrases.
+**Encrypted:** SSH passwords, private keys, key passphrases, session recordings.
 **Not encrypted:** labels, hostnames, ports, usernames, folder names, tags. These are metadata, not secrets — keeping them in plaintext is what makes search and listing fast. If your *hostnames* are themselves sensitive, be aware of this.
-**Not encrypted — session recordings.** When recording is on, everything a session prints is written to `data/recordings/*.cast` in plain text. That includes anything displayed on screen: file contents you `cat`, tokens a command prints, and so on (not passwords typed at a hidden prompt, since those aren't echoed). Treat the recordings directory as sensitive, include it in your backup thinking, and turn recording off if that trade-off is wrong for you.
+
+**Session recordings are encrypted.** Every live SSH session gets its own random 32-byte key, sealed under your vault key (or the team's shared key) the same way credentials are. When recording is on, the session's output is written to `data/recordings/*.cast.enc` in AES-256-GCM chunks under that key — not in plain text. That includes everything displayed on screen: file contents you `cat`, tokens a command prints, and so on (not passwords typed at a hidden prompt, since those aren't echoed). Decrypting a recording for playback requires an unlocked vault. A session's key is kept in memory for its lifetime — including after the vault locks, which is what lets a long-running recording keep being written securely while you're locked out — and is zeroed when the session ends. Password changes and backup/restore carry these keys forward, so existing recordings stay playable. Recordings made before this (an older Skiff) are stored as plain `.cast` files and still play; treat any such files as sensitive on disk, same as before.
 
 ## Team mode — how encryption works
 
@@ -124,6 +125,7 @@ Skiff is only as safe as how you run it:
 | Shared-key sealing (team mode) | AES-256-GCM under a password-derived KEK |
 | Password verification | HMAC-SHA-256 verifier (no password stored) |
 | Session key storage | in-memory only, zeroed on lock/idle; per-request copies zeroed after each response |
+| Recording encryption | AES-256-GCM chunks under a per-SSH-session key, itself sealed under the vault/shared key |
 | Verifier comparison | constant-time |
 | Host key fingerprint | SHA-256 of the host key (OpenSSH format) |
 
