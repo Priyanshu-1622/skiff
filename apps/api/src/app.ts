@@ -31,6 +31,8 @@ import { ZodError } from "zod";
 declare module "fastify" {
   interface FastifyInstance {
     skiffDb: SkiffDb;
+    /** Live SSH sessions. Exposed for tests and diagnostics. */
+    sessionManager: SessionManager;
   }
 }
 
@@ -215,6 +217,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     log: app.log,
   });
   const sessionManager = new SessionManager();
+  app.decorate("sessionManager", sessionManager);
   const attemptLimiter = new AttemptLimiter();
 
   app.addHook("onClose", async () => {

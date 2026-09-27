@@ -4,11 +4,13 @@ import { join } from "node:path";
 import type { SessionStore } from "../crypto/session-store.js";
 import type { Config } from "../config.js";
 import { type SessionManager, type AttachedClient, ownerKeyFor, managedIdFor } from "../lib/session-manager.js";
-import { decrypt } from "../crypto/vault.js";
+import { decrypt, computeVerifier, verifierMatches } from "../crypto/vault.js";
 import { writeAudit } from "../lib/audit.js";
 import { SessionRecorder } from "../lib/recorder.js";
 import { generateId } from "../lib/id.js";
 import { hostKeyFingerprint, hostKeyType, legacyHostKeyId } from "../lib/host-key.js";
+import { linkServer } from "../lib/servers.js";
+import { newDataKey, wrapDataKey } from "../crypto/data-keys.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
@@ -91,7 +93,6 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         socket.close(4001);
         return;
       }
-      const vaultKey = entry.vaultKey;
 
       const host = db.prepare("SELECT * FROM hosts WHERE id = ?").get(hostId) as any;
       if (!host) {
@@ -131,11 +132,18 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
 
       const isAttached = () => deps.sessionManager.get(managedId)?.attached === client;
 
-      const sendReplay = (scrollback: Buffer | null, message: string) => {
-        socket.send(JSON.stringify({ type: "status", message }));
-        if (scrollback && scrollback.length) {
-          socket.send(JSON.stringify({ type: "data", data: scrollback.toString("base64") }));
-        }
+      // Attach this socket and replay the session's screen. The status and the
+      // screen are sent from attach's callback, which runs before any output
+      // produced during the attach is flushed — so the browser always gets the
+      // screen first, then everything after it, exactly once.
+      const attachAndReplay = (message: string) => {
+        void deps.sessionManager.attach(managedId, client, (screen) => {
+          if (socket.readyState !== 1) return;
+          socket.send(JSON.stringify({ type: "status", message }));
+          if (screen.length) {
+            socket.send(JSON.stringify({ type: "data", data: screen.toString("base64") }));
+          }
+        }).catch(() => { /* session ended meanwhile; the socket is told separately */ });
       };
 
       socket.on("message", (raw: Buffer | string) => {
@@ -174,7 +182,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
       // Fast path: an existing live session for this host? Reattach + replay.
       const existing = deps.sessionManager.get(managedId);
       if (existing && !existing.closed) {
-        sendReplay(deps.sessionManager.attach(managedId, client), "Reattached");
+        attachAndReplay("Reattached");
         return;
       }
 
@@ -216,6 +224,39 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         ? (db.prepare("SELECT * FROM credentials WHERE id = ?").get(host.credential_id) as any)
         : null;
 
+      // This connection's own copy of the vault key: the session store zeroes
+      // its buffer on lock, which must not pull the key out from under a
+      // connect in progress. Needed only until the session's data key is
+      // wrapped — released right after, never kept for the session's life.
+      const vaultKey = Buffer.from(entry.vaultKey);
+      let vaultKeyReleased = false;
+      const releaseVaultKey = () => {
+        if (vaultKeyReleased) return;
+        vaultKeyReleased = true;
+        vaultKey.fill(0);
+      };
+
+      // Approving a host's fingerprint waits on a human, and opening a shell
+      // waits on the remote server — either can take long enough for the
+      // master password to change in another tab. This copy of the vault key
+      // would then be quietly stale: sealing a servers/session_keys row under
+      // it writes something nobody can ever unwrap again (the old
+      // key-derivation params are gone the moment vault_meta is overwritten),
+      // which then breaks every future password change forever, since the
+      // re-wrap loop hits that row every time. So re-check freshness from the
+      // database — not from `entry`, which only reflects the login this
+      // connection started with — immediately before ANY use of `vaultKey`
+      // to seal something durable. Team mode's shared key is only ever
+      // re-sealed to a different member's password, never replaced, so it
+      // can't go stale this way.
+      const vaultKeyIsCurrent = (): boolean => {
+        const meta = db.prepare("SELECT mode, verifier FROM vault_meta WHERE id = 1").get() as
+          | { mode?: string; verifier: Buffer } | undefined;
+        if (!meta) return false;
+        if (meta.mode === "team") return true;
+        return verifierMatches(computeVerifier(vaultKey), meta.verifier);
+      };
+
       const ssh = new SSH2Client();
 
       let connected = false;
@@ -242,10 +283,20 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           connConfig.hostVerifier = (rawKey: Buffer, callback: (approved: boolean) => void) => {
             const fp = hostKeyFingerprint(rawKey);
             const algorithm = hostKeyType(rawKey);
+            const accept = () => {
+              // Memory is best-effort: a failure here must never block the
+              // connection. Skip entirely if the vault key went stale while
+              // this prompt was waiting on a human — sealing under it would
+              // write an unrecoverable row (see vaultKeyIsCurrent above).
+              if (vaultKeyIsCurrent()) {
+                try { linkServer(db, { hostId, fingerprint: fp, algorithm, vaultKey }); } catch { /* ignore */ }
+              }
+              callback(true);
+            };
 
             if (knownHost) {
               if (knownHost.fingerprint === fp) {
-                callback(true);
+                accept();
                 return;
               }
               // Pinned by an older Skiff, which stored the whole key instead of
@@ -253,7 +304,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
               if (knownHost.fingerprint === legacyHostKeyId(rawKey)) {
                 db.prepare("UPDATE known_hosts SET fingerprint = ?, algorithm = ? WHERE hostname = ? AND port = ?")
                   .run(fp, algorithm, host.hostname, host.port);
-                callback(true);
+                accept();
                 return;
               }
               const meta = db.prepare("SELECT mode FROM vault_meta WHERE id = 1").get() as { mode?: string } | undefined;
@@ -303,7 +354,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                   db.prepare(
                     "INSERT OR REPLACE INTO known_hosts (hostname, port, fingerprint, algorithm, first_seen_at) VALUES (?, ?, ?, ?, ?)"
                   ).run(host.hostname, host.port, fp, algorithm, new Date().toISOString());
-                  callback(true);
+                  accept();
                 } else if (msg.type === "fingerprint_reject") {
                   settled = true;
                   clearTimeout(timer);
@@ -337,6 +388,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           ssh.connect(connConfig);
         } catch (e: any) {
           releaseSlot();
+          releaseVaultKey();
           socket.send(JSON.stringify({ type: "error", message: e.message }));
           socket.close(4002);
         }
@@ -358,8 +410,15 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
         const window = lastSize ? { rows: lastSize.rows, cols: lastSize.cols } : {};
         ssh.shell({ term: "xterm-256color", ...window }, (shellErr, stream) => {
           if (shellErr) {
-            socket.send(JSON.stringify({ type: "error", message: shellErr.message }));
-            socket.close(4003);
+            // The server accepted the login but refused a shell (ForceCommand,
+            // no shell for this user). Hang up rather than leave the SSH
+            // connection — and this connection's key copy — open forever.
+            releaseVaultKey();
+            try { ssh.end(); } catch { /* already closing */ }
+            if (socket.readyState === 1) {
+              socket.send(JSON.stringify({ type: "error", message: shellErr.message }));
+              socket.close(4003);
+            }
             return;
           }
 
@@ -372,39 +431,70 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
             try { stream.close(); } catch { /* ignore */ }
             try { ssh.end(); } catch { /* ignore */ }
             if (socket.readyState === 1) {
-              sendReplay(deps.sessionManager.attach(managedId, client), "Reattached");
+              attachAndReplay("Reattached");
             }
             return;
           }
 
+          // This session's own data key, stored wrapped under the vault key.
+          // Best-effort: without it the session still works, just without an
+          // encrypted recording. Skipped outright if the vault key went stale
+          // while the SSH handshake was in flight — same reasoning as accept()
+          // above; sealing under a stale key is worse than not sealing at all.
+          let dataKey: Buffer | null = null;
+          let keyId: string | null = null;
+          if (vaultKeyIsCurrent()) {
+            try {
+              dataKey = newDataKey();
+              keyId = generateId("key");
+              const { nonce, wrapped } = wrapDataKey(dataKey, vaultKey);
+              db.prepare("INSERT INTO session_keys (id, wrapped_key, nonce, created_at) VALUES (?, ?, ?, ?)")
+                .run(keyId, wrapped, nonce, new Date().toISOString());
+            } catch {
+              dataKey?.fill(0);
+              dataKey = null;
+              keyId = null;
+            }
+          }
+          releaseVaultKey();
+
           const session = deps.sessionManager.register({
             id: managedId, hostId, owner, user: entry.user, ssh, stream,
+            cols: lastSize?.cols, rows: lastSize?.rows,
+            dataKey, keyId,
           });
           releaseSlot(); // now counted by the session manager itself
 
           // Optional recording (per-vault setting; mode-aware default).
+          // Recordings are always encrypted now (SECURITY.md) — if this
+          // session has no data key (creation failed, or the vault key went
+          // stale mid-connect), skip recording entirely rather than silently
+          // write it to disk in plain text.
           const meta = db.prepare("SELECT recording_enabled FROM vault_meta WHERE id = 1").get() as
             | { recording_enabled: number } | undefined;
-          if (meta?.recording_enabled) {
+          if (meta?.recording_enabled && session.dataKey && session.keyId) {
             const recId = generateId("rec");
             try {
               // Synchronous, in the same tick the shell opened: output can't
               // arrive before onOutput is set, so the MOTD and first prompt
               // are in the recording too.
+              const recKey = session.dataKey;
               const recorder = SessionRecorder.create({
                 dir: join(deps.dataDir, "recordings"),
                 id: recId,
                 cols: lastSize?.cols ?? 80, rows: lastSize?.rows ?? 24,
                 title: `${host.label} (${host.username}@${host.hostname})`,
+                key: recKey,
               });
               db.prepare(
                 `INSERT INTO session_recordings
-                   (id, host_id, host_label, hostname, user_id, username, started_at, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'recording')`
+                   (id, host_id, host_label, hostname, user_id, username, started_at, status, format, key_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'recording', ?, ?)`
               ).run(
                 recId, hostId, host.label, host.hostname,
                 entry.user?.id ?? null, entry.user?.username ?? null,
                 new Date().toISOString(),
+                "enc", session.keyId,
               );
 
               session.onOutput = (chunk) => recorder.writeOutput(chunk);
@@ -443,12 +533,12 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           // Only now is there a session to receive input and resizes, so only
           // now tell the browser it's connected — it flushes buffered
           // keystrokes on this message, and they used to arrive too early.
-          sendReplay(deps.sessionManager.attach(managedId, client), "Connected");
+          attachAndReplay("Connected");
         });
       });
 
-      // Any way the connection ends before registering frees the slot.
-      ssh.on("close", releaseSlot);
+      // Any way the connection ends before registering frees the slot and the key copy.
+      ssh.on("close", () => { releaseSlot(); releaseVaultKey(); });
 
       ssh.on("error", (sshErr) => {
         if (socket.readyState === 1) {

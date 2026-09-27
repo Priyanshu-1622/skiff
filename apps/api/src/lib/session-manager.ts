@@ -1,5 +1,6 @@
 import type { Client as SSH2Client } from "ssh2";
 import type { SessionUser } from "../crypto/session-store.js";
+import { TermMirror } from "./term-mirror.js";
 
 /**
  * Server-side terminal session manager.
@@ -9,8 +10,9 @@ import type { SessionUser } from "../crypto/session-store.js";
  * A browser WebSocket attaches to a session to see its output and send input,
  * and detaches when the tab closes — but the underlying SSH session keeps
  * running on the server. Reopening the terminal reattaches to the same live
- * session and replays the recent scrollback so the user picks up exactly
- * where they left off.
+ * session and replays its screen — the rendered result, colours and edits
+ * applied, not a stream of raw bytes — so the user picks up exactly where
+ * they left off.
  *
  * Sessions belong to an OWNER — the person, not the browser login that
  * opened them (see ownerKeyFor). That is what lets a session outlive the
@@ -33,11 +35,22 @@ export interface ManagedSession {
   ssh: SSH2Client;
   /** The PTY stream from ssh.shell(). Typed loosely — ssh2's types are partial. */
   stream: any;
-  /** Ring buffer of recent raw output bytes, replayed to a client on attach. */
-  scrollback: Buffer[];
-  scrollbackBytes: number;
+  /** Headless copy of the screen; replayed on attach (and read by capture). */
+  mirror: TermMirror;
+  /**
+   * This session's own data key (plaintext, in memory only) and the id of its
+   * wrapped copy in `session_keys`. Encrypts the session's recording (and,
+   * later, its memory) even after the vault locks. Zeroed when the session ends.
+   */
+  dataKey: Buffer | null;
+  keyId: string | null;
   /** The single currently-attached client, if any. One viewer per session. */
   attached: AttachedClient | null;
+  /**
+   * A client being attached: output produced meanwhile waits here, in order,
+   * tagged with its mirror sequence number so the snapshot boundary is exact.
+   */
+  pending: { client: AttachedClient; queue: Array<{ seq: number; data: Buffer }> } | null;
   /** Timer that reaps the session after the idle grace period with no client. */
   reapTimer: NodeJS.Timeout | null;
   createdAt: number;
@@ -59,7 +72,6 @@ export interface AttachedClient {
   loginSessionId?: string;
 }
 
-const MAX_SCROLLBACK_BYTES = 256 * 1024; // 256 KB of replayable history per session
 const DEFAULT_IDLE_GRACE_MS = 30 * 60 * 1000; // reap detached sessions after 30 min
 
 /**
@@ -100,7 +112,7 @@ export class SessionManager {
 
   /**
    * Register a freshly-connected SSH session + PTY stream. Wires the stream's
-   * output into the scrollback buffer, the attached client (if any), and the
+   * output into the screen mirror, the attached client (if any), and the
    * optional recorder. Returns the managed session.
    *
    * Callers must check get(id) first: a live session under the same id is a
@@ -114,6 +126,11 @@ export class SessionManager {
     user?: SessionUser;
     ssh: SSH2Client;
     stream: any;
+    /** Initial PTY size, so the mirror matches the real terminal from the start. */
+    cols?: number;
+    rows?: number;
+    dataKey?: Buffer | null;
+    keyId?: string | null;
   }): ManagedSession {
     const existing = this.sessions.get(opts.id);
     if (existing && !existing.closed) {
@@ -127,9 +144,11 @@ export class SessionManager {
       user: opts.user,
       ssh: opts.ssh,
       stream: opts.stream,
-      scrollback: [],
-      scrollbackBytes: 0,
+      mirror: new TermMirror({ cols: opts.cols ?? 80, rows: opts.rows ?? 24 }),
+      dataKey: opts.dataKey ?? null,
+      keyId: opts.keyId ?? null,
       attached: null,
+      pending: null,
       reapTimer: null,
       createdAt: Date.now(),
       onOutput: null,
@@ -144,10 +163,8 @@ export class SessionManager {
       if (session.onOutput) {
         try { session.onOutput(data); } catch { /* recording must never break the session */ }
       }
-      this.pushScrollback(session, data);
-      if (session.attached) {
-        try { session.attached.send(data); } catch { /* client vanished; detach happens on its own */ }
-      }
+      const seq = session.mirror.write(data);
+      this.deliver(session, data, seq);
     };
 
     opts.stream.on("data", handleOutput);
@@ -166,13 +183,14 @@ export class SessionManager {
     return session;
   }
 
-  /** Append output to the ring buffer, trimming from the front past the cap. */
-  private pushScrollback(session: ManagedSession, data: Buffer): void {
-    session.scrollback.push(data);
-    session.scrollbackBytes += data.length;
-    while (session.scrollbackBytes > MAX_SCROLLBACK_BYTES && session.scrollback.length > 1) {
-      const dropped = session.scrollback.shift()!;
-      session.scrollbackBytes -= dropped.length;
+  /** Send output to the attached client, or hold it while one is being attached. */
+  private deliver(session: ManagedSession, data: Buffer, seq: number): void {
+    if (session.pending) {
+      session.pending.queue.push({ seq, data });
+      return;
+    }
+    if (session.attached) {
+      try { session.attached.send(data); } catch { /* client vanished; detach happens on its own */ }
     }
   }
 
@@ -187,10 +205,22 @@ export class SessionManager {
 
   /**
    * Attach a browser client to a live session. Cancels any pending reap,
-   * replaces any previous client (last attach wins), and returns the current
-   * scrollback so the caller can replay it to the newly-attached browser.
+   * replaces any previous client (last attach wins), and resolves with a
+   * snapshot of the screen for the caller to replay.
+   *
+   * Ordering: everything the mirror had before this call is in the snapshot;
+   * output produced while the snapshot is taken is held and sent afterwards.
+   * Pass `onSnapshot` to deliver the snapshot yourself: it is called
+   * synchronously before the held output is flushed, which is the only way to
+   * guarantee the browser sees the screen first. Awaiting the returned promise
+   * and then sending would be too late, because the flush has already run.
+   * Resolves null if the session ended or another window took over.
    */
-  attach(id: string, client: AttachedClient): Buffer | null {
+  async attach(
+    id: string,
+    client: AttachedClient,
+    onSnapshot?: (snapshot: Buffer) => void,
+  ): Promise<Buffer | null> {
     const session = this.sessions.get(id);
     if (!session || session.closed) return null;
 
@@ -198,14 +228,35 @@ export class SessionManager {
     if (session.attached && session.attached !== client) {
       try { session.attached.end("Session opened in another window"); } catch { /* ignore */ }
     }
-    session.attached = client;
+    if (session.pending && session.pending.client !== client) {
+      try { session.pending.client.end("Session opened in another window"); } catch { /* ignore */ }
+    }
+    session.attached = null;
 
     if (session.reapTimer) {
       clearTimeout(session.reapTimer);
       session.reapTimer = null;
     }
 
-    return session.scrollback.length ? Buffer.concat(session.scrollback) : Buffer.alloc(0);
+    const hand = { client, queue: [] as Array<{ seq: number; data: Buffer }> };
+    session.pending = hand;
+    const snap = await session.mirror.snapshotWithSeq();
+    const snapshot = Buffer.from(snap.screen, "utf8");
+    // Ended, detached, or superseded while the snapshot was being taken.
+    if (session.closed || session.pending !== hand) return null;
+
+    if (onSnapshot) {
+      try { onSnapshot(snapshot); } catch { /* client vanished */ }
+    }
+    session.pending = null;
+    session.attached = client;
+    // Only what the snapshot doesn't already show — xterm may have applied
+    // some queued chunks before the snapshot was taken.
+    for (const item of hand.queue) {
+      if (item.seq <= snap.seq) continue;
+      try { client.send(item.data); } catch { /* vanished */ }
+    }
+    return snapshot;
   }
 
   /**
@@ -215,6 +266,12 @@ export class SessionManager {
   detach(id: string, client: AttachedClient): void {
     const session = this.sessions.get(id);
     if (!session) return;
+    if (session.pending?.client === client) {
+      // Went away before its snapshot was ready.
+      session.pending = null;
+      if (!session.attached) this.startReap(session);
+      return;
+    }
     if (session.attached !== client) return; // a newer client already took over
     session.attached = null;
     this.startReap(session);
@@ -226,6 +283,12 @@ export class SessionManager {
    */
   detachByLogin(loginSessionId: string, reason: string): void {
     for (const session of this.sessions.values()) {
+      if (session.pending?.client.loginSessionId === loginSessionId) {
+        const waiting = session.pending.client;
+        session.pending = null;
+        try { waiting.end(reason); } catch { /* ignore */ }
+        if (!session.attached) this.startReap(session);
+      }
       const client = session.attached;
       if (!client || client.loginSessionId !== loginSessionId) continue;
       session.attached = null;
@@ -277,6 +340,7 @@ export class SessionManager {
     if (!session || session.closed || !session.stream) return;
     if (from && session.attached !== from) return;
     try { session.stream.setWindow(rows, cols, 0, 0); } catch { /* ignore */ }
+    session.mirror.resize(cols, rows);
     if (session.onResize) {
       try { session.onResize(rows, cols); } catch { /* recording must never break the session */ }
     }
@@ -307,6 +371,13 @@ export class SessionManager {
       try { session.attached.end(reason); } catch { /* ignore */ }
       session.attached = null;
     }
+    if (session.pending) {
+      try { session.pending.client.end(reason); } catch { /* ignore */ }
+      session.pending = null;
+    }
+    session.mirror.dispose();
+    // After onEnd (the recorder has flushed with it): the key is no longer needed.
+    session.dataKey?.fill(0);
     try { session.ssh.end(); } catch { /* already closed */ }
 
     // Only remove the registry entry if it is still this session.
