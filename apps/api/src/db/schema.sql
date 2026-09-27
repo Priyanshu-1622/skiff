@@ -210,3 +210,26 @@ CREATE TABLE IF NOT EXISTS session_recordings (
 CREATE INDEX IF NOT EXISTS idx_recordings_started ON session_recordings(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_recordings_user ON session_recordings(user_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_host ON session_recordings(host_id);
+
+-- ─── servers (v5) ─────────────────────────────────────────────────
+-- A physical/virtual machine, identified by its SSH host key. Host entries
+-- point at one, so memory follows the machine even if it is added twice or
+-- renamed; a rebuilt server (new key) is a new row linked to the old one.
+CREATE TABLE IF NOT EXISTS servers (
+  id TEXT PRIMARY KEY,
+  fingerprint TEXT NOT NULL UNIQUE,
+  algorithm TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  previous_server_id TEXT REFERENCES servers(id) ON DELETE SET NULL,
+  file_key_wrapped BLOB NOT NULL,
+  file_key_nonce BLOB NOT NULL
+);
+
+-- ─── session_keys (v5) ────────────────────────────────────────────
+-- Per-session data keys, wrapped under the vault/shared key (crypto/data-keys.ts).
+CREATE TABLE IF NOT EXISTS session_keys (
+  id TEXT PRIMARY KEY,
+  wrapped_key BLOB NOT NULL,
+  nonce BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);

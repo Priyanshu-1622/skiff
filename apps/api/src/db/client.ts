@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export interface DbConfig {
   /** Absolute path to the data directory. Created if it doesn't exist. */
@@ -103,5 +103,16 @@ export function runColumnMigrations(db: Database.Database): void {
     db.exec(
       "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
     );
+  }
+
+  // v5: hosts point at the machine they reach; recordings name their key.
+  if (!hasColumn("hosts", "server_id")) {
+    db.exec("ALTER TABLE hosts ADD COLUMN server_id TEXT REFERENCES servers(id) ON DELETE SET NULL");
+  }
+  if (!hasColumn("session_recordings", "key_id")) {
+    db.exec("ALTER TABLE session_recordings ADD COLUMN key_id TEXT");
+  }
+  if (!hasColumn("session_recordings", "format")) {
+    db.exec("ALTER TABLE session_recordings ADD COLUMN format TEXT NOT NULL DEFAULT 'plain'");
   }
 }
