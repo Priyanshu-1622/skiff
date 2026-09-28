@@ -49,7 +49,7 @@ test("screen mode: no markers at all, captures via the real bash corpus", async 
     typeAndEnter(engine, seg.command);
     await engine.onOutput(seg.echoAndOutput);
   }
-  engine.end(); // the corpus's final auto-"exit" (triggered by EOF, not typed) is not modeled as input
+  await engine.end(); // the corpus's final auto-"exit" (triggered by EOF, not typed) is not modeled as input
 
   assert.equal(engine.events.length, 3);
   assert.deepEqual(
@@ -72,7 +72,7 @@ test("screen mode flags a fullscreen program's launching command and never captu
   await engine.onOutput("\x1b[?1049h"); // now enters alt screen, in its own chunk
   await engine.onOutput("~ file contents ~"); // rendered inside vim; must not be captured
   await engine.onOutput("\x1b[?1049l\r\ndeploy@web-1:~$ "); // leaving alt screen, prompt returns
-  engine.end();
+  await engine.end();
 
   assert.equal(engine.events.length, 1);
   assert.equal(engine.events[0].command, "vim file.txt");
@@ -113,7 +113,7 @@ test("a command's output larger than the cap is pruned on the emitted event", as
   const flood = "y\r\n".repeat(25_000); // 75,000 bytes ("y\r\n" is 3 bytes), over the 65,536-byte (32KB+32KB) cap, fed separately
   await engine.onOutput(flood);
   await engine.onOutput("deploy@web-1:~$ "); // e.g. Ctrl-C stopped `yes`; the shell redraws its prompt
-  engine.onInput("q"); // next command starts, ending the previous one (screen mode)
+  await engine.onInput("q"); // next command starts, ending the previous one (screen mode)
   const [event] = engine.events;
   assert.equal(event.command, "yes");
   assert.equal(event.outputPruned, true);
@@ -127,7 +127,7 @@ test("session end while a command is still running is captured with ended: 'runn
   await engine.onOutput("deploy@web-1:~$ ");
   typeAndEnter(engine, "sleep 100");
   await engine.onOutput("sleep 100\r\n");
-  engine.end();
+  await engine.end();
 
   assert.equal(engine.events.length, 1);
   assert.equal(engine.events[0].ended, "running");
@@ -154,7 +154,7 @@ test("output does not grow without bound while a command is still running (bound
   // real long-running `tail -f` it could otherwise grow to gigabytes).
   assert.ok(retained < 270_000, `retained output should stay bounded well under the total written, was ${retained} chars`);
   await engine.onOutput("deploy@web-1:~$ "); // e.g. Ctrl-C stopped it; the shell redraws its prompt
-  engine.onInput("q");
+  await engine.onInput("q");
   const [event] = engine.events;
   assert.equal(event.outputPruned, true);
   assert.ok(event.outputBytes > 300_000, `outputBytes should reflect the true total, was ${event.outputBytes}`);
@@ -168,7 +168,7 @@ test("a command that wraps across terminal rows is captured in full (screen mode
   const longCmd = "0123456789ABCDEFGHIJ"; // 21 chars, wraps multiple times in a 10-col terminal
   typeAndEnter(engine, longCmd);
   await engine.onOutput(`${longCmd}\r\nOUTPUT\r\n$ `);
-  engine.end();
+  await engine.end();
   assert.equal(engine.events[0].command, longCmd);
   mirror.dispose();
 });
@@ -184,7 +184,7 @@ test("a password prompt's hidden input is not captured as a command, and does no
   for (const ch of "hunter2") engine.onInput(ch);
   engine.onInput("\n");
   await engine.onOutput("\r\nfile.txt\r\ndeploy@web-1:~$ "); // real ls output, then the real prompt returns
-  engine.end();
+  await engine.end();
 
   assert.equal(engine.events.length, 1, "no phantom event from the password prompt");
   assert.equal(engine.events[0].command, "sudo ls");
@@ -202,7 +202,7 @@ test("Ctrl-C does not corrupt the next command's prompt column (screen mode)", a
   await engine.onOutput("^C\r\ndeploy@web-1:~$ "); // shell redraws its prompt after the interrupt
   typeAndEnter(engine, "ls");
   await engine.onOutput("ls\r\nfile.txt\r\ndeploy@web-1:~$ ");
-  engine.end();
+  await engine.end();
 
   assert.deepEqual(engine.events.map((e) => e.command), ["ping example.com", "ls"]);
 });
@@ -219,7 +219,7 @@ test("screen mode: typing then backspacing to nothing, then Enter, does not crea
   await engine.onOutput("\r\ndeploy@web-1:~$ "); // shell just redraws the prompt; nothing ran
   typeAndEnter(engine, "ls");
   await engine.onOutput("ls\r\nfile.txt\r\ndeploy@web-1:~$ ");
-  engine.end();
+  await engine.end();
 
   assert.deepEqual(engine.events.map((e) => e.command), ["ls"]);
   mirror.dispose();
@@ -248,7 +248,7 @@ test("alt-screen entered and left within a single chunk still gets flagged, and 
   // enter alt-screen, show secret content, and leave alt-screen — all in one chunk
   await engine.onOutput("\x1b[?1049hDB_PASS=s3cr3t\x1b[?1049l");
   await engine.onOutput("\r\ndeploy@web-1:~$ ");
-  engine.end();
+  await engine.end();
 
   assert.equal(engine.events.length, 1);
   assert.equal(engine.events[0].command, "vim .env");
@@ -267,8 +267,94 @@ test("a multi-byte UTF-8 character split across two Buffer chunks is not corrupt
   const splitPoint = full.indexOf(eBytes) + 1; // split inside the 2-byte 'é'
   await engine.onOutput(full.subarray(0, splitPoint));
   await engine.onOutput(full.subarray(splitPoint));
-  engine.end();
+  await engine.end();
 
   assert.ok(engine.events[0].output.includes("café"), "the split character must not be corrupted");
+  mirror.dispose();
+});
+
+// --- Storage-wiring hardening (2026-09-27 storage plan, Task 1) ---
+
+test("CommandEvent carries a startedAt timestamp captured when the command began running", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("deploy@web-1:~$ ");
+  const before = Date.now();
+  typeAndEnter(engine, "ls");
+  await engine.onOutput("ls\r\nfile.txt\r\ndeploy@web-1:~$ ");
+  const after = Date.now();
+  await engine.onInput("q"); // no-op here, "ls" already finished via marker-less screen mode newline
+  const [event] = engine.events;
+  assert.ok(event.startedAt >= before && event.startedAt <= after);
+  mirror.dispose();
+});
+
+test("onCommand fires with the same event pushed to events, as each command completes", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const seen: string[] = [];
+  const engine = new CaptureEngine(mirror, { onCommand: (e) => seen.push(e.command) });
+  await engine.onOutput("deploy@web-1:~$ ");
+  typeAndEnter(engine, "whoami");
+  await engine.onOutput("whoami\r\npiyup\r\ndeploy@web-1:~$ ");
+  typeAndEnter(engine, "pwd");
+  await engine.onOutput("pwd\r\n/home\r\ndeploy@web-1:~$ ");
+  await engine.end();
+  assert.deepEqual(seen, ["whoami", "pwd"]);
+  assert.deepEqual(engine.events.map((e) => e.command), seen);
+  mirror.dispose();
+});
+
+test("concurrent, un-awaited onOutput calls still apply to the mirror in the order they were called, never reordered", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  // Fire three chunks back-to-back with NO await between them — exactly
+  // what a synchronous stream 'data' handler that can't await per chunk
+  // will do once this engine is wired into SessionManager (Task 5).
+  const p1 = engine.onOutput("AAA");
+  const p2 = engine.onOutput("BBB");
+  const p3 = engine.onOutput("CCC");
+  await Promise.all([p1, p2, p3]);
+  assert.equal(mirror.cursorLine(), "AAABBBCCC", "chunks landed in call order, not completion order");
+  mirror.dispose();
+});
+
+// --- Fixes from the fresh reviewer's whole-branch review (2026-09-28) ---
+
+test("input arriving while an earlier output write is still queued reads the mirror only after that write is applied, not before", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  const p1 = engine.onOutput("deploy@web-1:~$ "); // NOT awaited: still queued when input arrives
+  typeAndEnter(engine, "whoami"); // fired synchronously, before p1 has necessarily resolved
+  const p2 = engine.onOutput("whoami\r\npiyup\r\ndeploy@web-1:~$ ");
+  await Promise.all([p1, p2]);
+  await engine.end();
+
+  assert.equal(engine.events.length, 1);
+  assert.equal(engine.events[0].command, "whoami", "must read the prompt column only once the prior queued write has actually been applied");
+  mirror.dispose();
+});
+
+test("end() drains the queue first, so a command whose completing output was still queued when the session ended is still captured", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("deploy@web-1:~$ ");
+  typeAndEnter(engine, "whoami");
+  const p = engine.onOutput("whoami\r\npiyup\r\ndeploy@web-1:~$ "); // not awaited: simulates output still in flight when the session ends
+  await engine.end();
+  await p;
+
+  assert.equal(engine.events.length, 1, "the command must not be silently dropped");
+  assert.equal(engine.events[0].command, "whoami");
+  mirror.dispose();
+});
+
+test("output queued far beyond a reasonable backlog degrades capture for the rest of the session instead of growing memory without bound", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  const bigChunk = "x".repeat(1_000_000); // 1MB
+  const promises: Promise<void>[] = [];
+  for (let i = 0; i < 20; i++) promises.push(engine.onOutput(bigChunk)); // 20MB fired, well past a small cap
+  await Promise.all(promises);
+  assert.equal(engine.failed, true, "capture degrades rather than queueing an unbounded backlog");
   mirror.dispose();
 });

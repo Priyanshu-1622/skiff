@@ -11,6 +11,9 @@ import { generateId } from "../lib/id.js";
 import { hostKeyFingerprint, hostKeyType, legacyHostKeyId } from "../lib/host-key.js";
 import { linkServer } from "../lib/servers.js";
 import { newDataKey, wrapDataKey } from "../crypto/data-keys.js";
+import { TermMirror } from "../lib/term-mirror.js";
+import { CaptureEngine } from "../lib/capture/engine.js";
+import { beginMemorySession, endMemorySession, saveCommandEntry } from "../lib/memory/store.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
@@ -472,8 +475,9 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           // write it to disk in plain text.
           const meta = db.prepare("SELECT recording_enabled FROM vault_meta WHERE id = 1").get() as
             | { recording_enabled: number } | undefined;
+          let recId: string | null = null;
           if (meta?.recording_enabled && session.dataKey && session.keyId) {
-            const recId = generateId("rec");
+            recId = generateId("rec");
             try {
               // Synchronous, in the same tick the shell opened: output can't
               // arrive before onOutput is set, so the MOTD and first prompt
@@ -509,6 +513,85 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
               };
             } catch {
               // Recording setup failed — proceed without it; session must work.
+            }
+          }
+
+          // Memory: capture commands into this session's own data (same
+          // key as the recording, if any — spec §4). Best-effort: any
+          // failure here must never affect the session or the recording.
+          // Skipped if the vault key went stale (no data key at all — same
+          // reasoning as recording above), if the owning host has memory
+          // off, or if memory is off vault-wide.
+          if (session.dataKey && session.keyId) {
+            const hostMemory = db.prepare("SELECT memory_mode FROM hosts WHERE id = ?").get(hostId) as
+              | { memory_mode: string } | undefined;
+            const vaultMemory = db.prepare("SELECT memory_enabled FROM vault_meta WHERE id = 1").get() as
+              | { memory_enabled: number } | undefined;
+            if (hostMemory?.memory_mode === "on" && vaultMemory?.memory_enabled) {
+              try {
+                const serverRow = db.prepare("SELECT server_id FROM hosts WHERE id = ?").get(hostId) as
+                  | { server_id: string | null } | undefined;
+                const memSessionId = beginMemorySession(db, {
+                  serverId: serverRow?.server_id ?? null,
+                  hostId,
+                  userId: entry.user?.id ?? null,
+                  username: entry.user?.username ?? null,
+                  keyId: session.keyId,
+                  recordingId: recId,
+                });
+                const captureMirror = new TermMirror({ cols: lastSize?.cols ?? 80, rows: lastSize?.rows ?? 24 });
+                // Own copy, like the recorder's `recKey` above: session.dataKey
+                // is zeroed by SessionManager right after onEnd returns, and
+                // CaptureEngine's queue can still be draining late-arriving
+                // output at that exact moment (it's async; onEnd is not) — a
+                // shared reference would seal that tail end under a zeroed
+                // key, silently producing an unreadable (and, worse,
+                // all-zero-key-readable) row instead of an encrypted one.
+                const memKey = Buffer.from(session.dataKey);
+                const captureEngine = new CaptureEngine(captureMirror, {
+                  onCommand: (event) => {
+                    try {
+                      saveCommandEntry(db, memKey, {
+                        memorySessionId: memSessionId,
+                        serverId: serverRow?.server_id ?? null,
+                        userId: entry.user?.id ?? null,
+                        event,
+                      });
+                    } catch { /* capture must never break the session */ }
+                  },
+                });
+
+                const priorOnOutput = session.onOutput;
+                session.onOutput = (chunk) => {
+                  if (priorOnOutput) priorOnOutput(chunk);
+                  captureEngine.onOutput(chunk).catch(() => {});
+                };
+                session.onInput = (chunk) => {
+                  captureEngine.onInput(chunk).catch(() => {});
+                };
+                const priorOnResize = session.onResize;
+                session.onResize = (rows, cols) => {
+                  if (priorOnResize) priorOnResize(rows, cols);
+                  captureMirror.resize(cols, rows);
+                };
+                const priorOnEnd = session.onEnd;
+                session.onEnd = () => {
+                  if (priorOnEnd) priorOnEnd();
+                  // end() drains everything already queued (including output
+                  // that arrived just before the stream closed) before its
+                  // own finalization runs — see CaptureEngine's class doc.
+                  // onEnd itself must stay synchronous (SessionManager's
+                  // type), so this cleanup is fire-and-forget from its
+                  // perspective; nothing after this point in onEnd depends on it.
+                  captureEngine.end()
+                    .catch(() => {})
+                    .then(() => {
+                      try { endMemorySession(db, memSessionId); } catch { /* best-effort */ }
+                      memKey.fill(0);
+                      captureMirror.dispose();
+                    });
+                };
+              } catch { /* memory capture must never break the session or its recording */ }
             }
           }
 

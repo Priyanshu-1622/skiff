@@ -60,6 +60,19 @@ export class SessionStore {
   }
 
   /**
+   * Any currently live session's vault key, or null if nothing is
+   * unlocked. Used by background jobs (the memory retention sweep) that
+   * have no login session id of their own to look up — unlike get()/
+   * getEntry(), which require one. Every live session's key is either the
+   * one personal-mode vault key or the one team shared key, so which
+   * session happens to be picked never matters.
+   */
+  anyVaultKey(): Buffer | null {
+    const entry = this.sessions.values().next().value as SessionEntry | undefined;
+    return entry ? entry.vaultKey : null;
+  }
+
+  /**
    * Get the full session entry (key + user identity), updating lastSeenAt.
    * Returns null if expired or not found.
    */

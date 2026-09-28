@@ -24,6 +24,7 @@ import { SessionManager } from "./lib/session-manager.js";
 import { createSetupGate } from "./lib/setup-token.js";
 import { AttemptLimiter } from "./lib/attempt-limiter.js";
 import { err } from "./lib/response.js";
+import { startRetentionSweep } from "./lib/memory/retention.js";
 import { ApiErrorCode } from "@skiff/shared";
 import { ZodError } from "zod";
 
@@ -211,6 +212,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   ).get() as { idle_timeout_minutes: number } | undefined;
   const idleTimeout = vaultMeta?.idle_timeout_minutes ?? 15;
   const sessionStore = new SessionStore(idleTimeout);
+  const retentionSweep = startRetentionSweep(rawDb, () => sessionStore.anyVaultKey());
+  app.addHook("onClose", async () => { retentionSweep.stop(); });
   const setupGate = createSetupGate({
     configured: config.setupToken,
     vaultInitialized: !!vaultMeta,

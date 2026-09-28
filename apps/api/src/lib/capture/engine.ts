@@ -13,6 +13,11 @@ export interface CommandEvent {
   outputBytes: number;
   outputPruned: boolean;
   ended: "exited" | "running";
+  startedAt: number;
+}
+
+export interface CaptureEngineOptions {
+  onCommand?: (event: CommandEvent) => void;
 }
 
 const MAX_HEAD_TAIL_BYTES = 32 * 1024;
@@ -51,6 +56,23 @@ function takeBytes(codepoints: string[], maxBytes: number, from: "start" | "end"
 // DEC private-mode alternate-screen toggles (47/1047/1049, set/reset).
 const ALT_SCREEN_TOGGLE = /\x1b\[\?(?:47|1047|1049)[hl]/;
 
+// If output arrives faster than the mirror can process it (each write waits
+// on one xterm flush round-trip), an unbounded queue would grow memory
+// without limit — a real risk under a fast stream (`cat` of a large file,
+// a busy build). Past this many bytes still waiting to be applied, capture
+// degrades for the rest of the session (spec §11: "capture off for that
+// session") rather than keep queueing. Well under what would actually
+// exhaust memory, so the degrade kicks in long before that's a risk.
+const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+
+// How many CommandEvents a long-lived session keeps in `events`. Only
+// matters when nothing reads `onCommand` (or a caller inspects `events`
+// directly, as this file's own tests do) — production wiring persists each
+// event as it fires and doesn't need history retained here at all. Without
+// a cap, a session lasting days would grow this array (each entry holding
+// up to 64KB of output) without bound.
+const MAX_RETAINED_EVENTS = 200;
+
 type Phase =
   | { name: "idle" }
   | { name: "typing"; promptEndX: number; promptRow: number; promptPrefix: string }
@@ -63,6 +85,7 @@ type Phase =
       outputBytes: number;
       flags: string[];
       promptPrefix: string;
+      startedAt: number;
     };
 
 /**
@@ -94,22 +117,56 @@ type Phase =
  * time — write, flush, *then* read mirror state for the marker that
  * follows — never flushing a whole multi-marker chunk at once and reading
  * stale state for an earlier marker in it.
+ *
+ * onInput, onOutput and end() all run through ONE shared FIFO queue, not
+ * three independent ones. That matters for correctness, not just
+ * bookkeeping: onInput's "read the prompt column" work must see the
+ * mirror exactly as it stands after every output byte that arrived
+ * *before* this input did — not whatever the mirror happens to show at
+ * the JS-synchronous instant onInput is called, which can be arbitrarily
+ * behind if output is still backlogged. Putting input on the same queue
+ * as output is what makes "after" mean the right thing. The same
+ * reasoning makes end() queued too: a command whose completing output was
+ * still queued when the session ended must still be captured, not
+ * dropped because end() ran before that output did.
  */
 export class CaptureEngine {
   readonly events: CommandEvent[] = [];
   private readonly osc = new Osc133Parser();
   private readonly inputDecoder = new StringDecoder("utf8");
   private readonly outputDecoder = new StringDecoder("utf8");
+  private readonly onCommand?: (event: CommandEvent) => void;
   private phase: Phase = { name: "idle" };
   private cwd: string | null = null;
   private sawCommandMarkers = false;
   private pendingSplitX: number | null = null;
+  private queue: Promise<void> = Promise.resolve();
+  private queuedBytes = 0;
+  private _failed = false;
 
-  constructor(private readonly mirror: TermMirror) {}
+  constructor(private readonly mirror: TermMirror, opts: CaptureEngineOptions = {}) {
+    this.onCommand = opts.onCommand;
+  }
 
-  onInput(data: Buffer | string): void {
-    const text = typeof data === "string" ? data : this.inputDecoder.write(data);
-    for (const ch of text) this.onInputByte(ch);
+  /** Set once the queued backlog exceeded MAX_QUEUED_BYTES — capture is off for the rest of this session (spec §11). */
+  get failed(): boolean {
+    return this._failed;
+  }
+
+  private enqueue(fn: () => void | Promise<void>): Promise<void> {
+    const next = this.queue.then(fn);
+    // Keep the chain alive even if this item's processing throws — a
+    // capture-side failure must never wedge every future item.
+    this.queue = next.catch(() => {});
+    return next;
+  }
+
+  onInput(data: Buffer | string): Promise<void> {
+    if (this._failed) return Promise.resolve();
+    return this.enqueue(() => {
+      const text = typeof data === "string" ? data : this.inputDecoder.write(data);
+      for (const ch of text) this.onInputByte(ch);
+    });
   }
 
   private onInputByte(ch: string): void {
@@ -146,7 +203,21 @@ export class CaptureEngine {
     this.phase = { name: "typing", promptEndX, promptRow, promptPrefix };
   }
 
-  async onOutput(data: Buffer | string): Promise<void> {
+  onOutput(data: Buffer | string): Promise<void> {
+    if (this._failed) return Promise.resolve();
+    const byteLen = typeof data === "string" ? Buffer.byteLength(data, "utf8") : data.length;
+    if (this.queuedBytes + byteLen > MAX_QUEUED_BYTES) {
+      this._failed = true; // degrade permanently for this session, matching TermMirror's own `failed` pattern
+      return Promise.resolve();
+    }
+    this.queuedBytes += byteLen;
+    return this.enqueue(async () => {
+      this.queuedBytes -= byteLen;
+      await this.processOutput(data);
+    });
+  }
+
+  private async processOutput(data: Buffer | string): Promise<void> {
     const text = typeof data === "string" ? data : this.outputDecoder.write(data);
     for (const token of this.osc.feed(text)) {
       if ("write" in token) {
@@ -209,12 +280,14 @@ export class CaptureEngine {
         : combined.slice(0, MAX_HEAD_TAIL_BYTES * 2) + combined.slice(-MAX_HEAD_TAIL_BYTES * 2);
   }
 
-  end(): void {
-    if (this.phase.name === "running") {
-      const p = this.phase;
-      this.pushEvent(p.command, null, p.cwd, p.confidence, p.flags, p.output, p.outputBytes, "running");
-      this.phase = { name: "idle" };
-    }
+  end(): Promise<void> {
+    return this.enqueue(() => {
+      if (this.phase.name === "running") {
+        const p = this.phase;
+        this.pushEvent(p.command, null, p.cwd, p.confidence, p.flags, p.output, p.outputBytes, "running", p.startedAt);
+        this.phase = { name: "idle" };
+      }
+    });
   }
 
   private applyMarker(m: OscMarker): void {
@@ -252,13 +325,14 @@ export class CaptureEngine {
           outputBytes: 0,
           flags: [],
           promptPrefix: this.phase.promptPrefix,
+          startedAt: Date.now(),
         };
         break;
       }
       case "command_finished": {
         if (this.phase.name !== "running") break;
         const p = this.phase;
-        this.pushEvent(p.command, m.exitCode, p.cwd, "marker", p.flags, p.output, p.outputBytes, "exited");
+        this.pushEvent(p.command, m.exitCode, p.cwd, "marker", p.flags, p.output, p.outputBytes, "exited", p.startedAt);
         this.phase = { name: "idle" };
         break;
       }
@@ -284,13 +358,14 @@ export class CaptureEngine {
       outputBytes: 0,
       flags: [],
       promptPrefix,
+      startedAt: Date.now(),
     };
   }
 
   private finishScreenCommand(): void {
     if (this.phase.name !== "running") return;
     const p = this.phase;
-    this.pushEvent(p.command, null, p.cwd, "screen", p.flags, p.output, p.outputBytes, "exited");
+    this.pushEvent(p.command, null, p.cwd, "screen", p.flags, p.output, p.outputBytes, "exited", p.startedAt);
     this.phase = { name: "idle" };
   }
 
@@ -303,10 +378,11 @@ export class CaptureEngine {
     output: string,
     outputTotalBytes: number,
     ended: "exited" | "running",
+    startedAt: number,
   ): void {
     const pruned = outputTotalBytes > MAX_HEAD_TAIL_BYTES * 2;
     const { text } = truncateHeadTail(output);
-    this.events.push({
+    const event: CommandEvent = {
       command: redact(command),
       exitCode,
       cwd,
@@ -316,6 +392,10 @@ export class CaptureEngine {
       outputBytes: outputTotalBytes,
       outputPruned: pruned,
       ended,
-    });
+      startedAt,
+    };
+    this.events.push(event);
+    if (this.events.length > MAX_RETAINED_EVENTS) this.events.shift();
+    this.onCommand?.(event);
   }
 }

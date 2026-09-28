@@ -110,6 +110,17 @@ test("write forwards input to the stream", async () => {
   assert.equal(stream.written[0].toString(), "ls -la\n");
 });
 
+test("onInput fires with exactly what the client sent, before it's written to the stream", async () => {
+  const mgr = new SessionManager();
+  const { session, stream } = register(mgr);
+  const seen: Buffer[] = [];
+  session.onInput = (chunk) => seen.push(chunk);
+  mgr.write("s1:h1", Buffer.from("ls\n"));
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].toString(), "ls\n");
+  assert.equal(stream.written[0].toString(), "ls\n", "still reaches the stream as before");
+});
+
 test("resize forwards dimensions to the stream", async () => {
   const mgr = new SessionManager();
   const { stream } = register(mgr);

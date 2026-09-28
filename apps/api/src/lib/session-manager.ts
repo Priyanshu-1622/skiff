@@ -56,6 +56,8 @@ export interface ManagedSession {
   createdAt: number;
   /** Optional recorder; receives every output chunk if recording is on. */
   onOutput: ((chunk: Buffer) => void) | null;
+  /** Receives every input chunk from the browser, before it reaches the stream (e.g. Memory capture). */
+  onInput: ((chunk: Buffer) => void) | null;
   /** Receives every PTY resize (recording keeps playback the right size). */
   onResize: ((rows: number, cols: number) => void) | null;
   /** Called once when the session ends, for cleanup (e.g. finalize recording). */
@@ -152,6 +154,7 @@ export class SessionManager {
       reapTimer: null,
       createdAt: Date.now(),
       onOutput: null,
+      onInput: null,
       onResize: null,
       onEnd: null,
       closed: false,
@@ -331,6 +334,9 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.closed || !session.stream) return;
     if (from && session.attached !== from) return;
+    if (session.onInput) {
+      try { session.onInput(data); } catch { /* capture must never break the session */ }
+    }
     try { session.stream.write(data); } catch { /* stream may have just closed */ }
   }
 
