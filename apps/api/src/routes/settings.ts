@@ -278,6 +278,8 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           idle_timeout_minutes: z.number().int().min(1).max(1440).optional(),
           mode: z.enum(["personal", "team"]).optional(),
           recording_enabled: z.number().optional(),
+          memory_enabled: z.number().optional(),
+          memory_output_days: z.number().int().positive().optional(),
           created_at: z.string().optional(),
         }),
         users: z.array(z.object({
@@ -331,11 +333,13 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
 
       const mode = restoreAsTeam ? "team" : "personal";
       const recording = m.recording_enabled ?? (restoreAsTeam ? 1 : 0);
+      const memoryEnabled = m.memory_enabled ?? 1;
+      const memoryOutputDays = m.memory_output_days ?? 90;
 
       const tx = db.transaction(() => {
         db.prepare(
-          `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, idle_timeout_minutes, mode, recording_enabled, created_at)
-           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, idle_timeout_minutes, mode, recording_enabled, memory_enabled, memory_output_days, created_at)
+           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           m.schema_version,
           Buffer.from(m.kdf_salt, "base64"),
@@ -343,6 +347,7 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           Buffer.from(m.verifier, "base64"),
           m.idle_timeout_minutes ?? 15,
           mode, recording ? 1 : 0,
+          memoryEnabled ? 1 : 0, memoryOutputDays,
           m.created_at ?? new Date().toISOString(),
         );
 
@@ -390,13 +395,14 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         }
         for (const h of body.hosts) {
           db.prepare(
-            `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, server_id, created_at, last_connected_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, server_id, memory_mode, created_at, last_connected_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             h.id, h.folder_id ?? null, h.label, h.hostname, h.port, h.username,
             h.auth_method, h.credential_id ?? null,
             typeof h.tags === "string" ? h.tags : JSON.stringify(h.tags ?? []),
-            h.starred ? 1 : 0, h.server_id ?? null, h.created_at ?? new Date().toISOString(), h.last_connected_at ?? null,
+            h.starred ? 1 : 0, h.server_id ?? null, h.memory_mode === "off" ? "off" : "on",
+            h.created_at ?? new Date().toISOString(), h.last_connected_at ?? null,
           );
         }
         for (const k of body.knownHosts) {

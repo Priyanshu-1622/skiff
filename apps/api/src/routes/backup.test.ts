@@ -233,3 +233,40 @@ test("setup and restore require the setup token when one is set", async () => {
     assert.equal((after.json() as any).data.setupTokenRequired, false);
   } finally { await app.close(); }
 });
+
+test("Memory settings (per-host off, vault-wide off, output retention days) survive a backup/restore round trip", async () => {
+  const sourceDb = memDb();
+  const source = await buildApp({ config: TEST_CONFIG, db: sourceDb });
+  let backup: any;
+  let hostId: string;
+  try {
+    const setup = await source.inject({ method: "POST", url: "/api/vault/setup", payload: { password: "master-pass-1" } });
+    const cookie = cookieFrom(setup);
+    await addHostWithPassword(source, cookie);
+    hostId = (sourceDb.raw.prepare("SELECT id FROM hosts").get() as any).id;
+    // Deliberately opted out — this is exactly the setting a restore must
+    // not silently reset, since that would turn capture back on for a
+    // host/vault the owner explicitly turned off.
+    sourceDb.raw.prepare("UPDATE hosts SET memory_mode = 'off' WHERE id = ?").run(hostId);
+    sourceDb.raw.prepare("UPDATE vault_meta SET memory_enabled = 0, memory_output_days = 30 WHERE id = 1").run();
+
+    const res = await source.inject({ method: "GET", url: "/api/settings/backup", headers: { cookie } });
+    backup = (res.json() as any).data;
+    assert.equal(backup.vaultMeta.memory_enabled, 0, "export carries the opted-out vault setting");
+    const exportedHost = backup.hosts.find((h: any) => h.id === hostId);
+    assert.equal(exportedHost.memory_mode, "off", "export carries the opted-out host setting");
+  } finally { await source.close(); }
+
+  const targetDb = memDb();
+  const target = await buildApp({ config: TEST_CONFIG, db: targetDb });
+  try {
+    const restore = await target.inject({ method: "POST", url: "/api/settings/restore", payload: backup });
+    assert.equal(restore.statusCode, 200);
+
+    const vault = targetDb.raw.prepare("SELECT memory_enabled, memory_output_days FROM vault_meta WHERE id = 1").get() as any;
+    assert.equal(vault.memory_enabled, 0, "restore must not silently turn memory back on vault-wide");
+    assert.equal(vault.memory_output_days, 30, "restore must not silently reset the retention window to the default");
+    const host = targetDb.raw.prepare("SELECT memory_mode FROM hosts WHERE id = ?").get(hostId!) as any;
+    assert.equal(host.memory_mode, "off", "restore must not silently turn memory back on for a host that had it off");
+  } finally { await target.close(); }
+});
