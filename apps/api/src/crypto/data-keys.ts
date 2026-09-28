@@ -47,6 +47,24 @@ export function sealChunk(key: Buffer, index: number, aad: string, plain: Buffer
  * died mid-write) is dropped and reported via `truncated`; anything else that
  * fails to authenticate throws.
  */
+/** One self-contained AEAD blob for a single small value (a memory entry), not a stream — unlike sealChunk/openChunks, there is no index or chunking. */
+export function sealEntry(key: Buffer, aad: string, plain: Buffer): { nonce: Buffer; data: Buffer } {
+  const iv = randomBytes(IV);
+  const c = createCipheriv("aes-256-gcm", key, iv);
+  c.setAAD(Buffer.from(aad, "utf8"));
+  const data = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+  return { nonce: iv, data };
+}
+
+export function openEntry(key: Buffer, aad: string, nonce: Buffer, data: Buffer): Buffer {
+  const d = createDecipheriv("aes-256-gcm", key, nonce);
+  d.setAAD(Buffer.from(aad, "utf8"));
+  const tag = data.subarray(data.length - TAG);
+  const body = data.subarray(0, data.length - TAG);
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(body), d.final()]);
+}
+
 export function openChunks(key: Buffer, aad: string, file: Buffer): { plain: Buffer; truncated: boolean } {
   const out: Buffer[] = [];
   let off = 0;

@@ -102,7 +102,7 @@ export const recordingsRoutes: (deps: RecordingsRouteDeps) => FastifyPluginAsync
         let dataKey: Buffer | null = null;
         try {
           dataKey = unwrapDataKey(k.w, k.n, req.vaultKey);
-          const { plain } = openChunks(dataKey, id, file);
+          const { plain } = openChunks(dataKey, `recording:${id}`, file);
           reply.header("Content-Type", "application/x-asciicast");
           reply.header("Cache-Control", "private, no-store");
           return reply.send(plain);

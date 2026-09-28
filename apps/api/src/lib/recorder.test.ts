@@ -147,7 +147,7 @@ test("with a key, the recording on disk is encrypted and decrypts to valid ascii
     await rec.closed;
     const raw = readFileSync(join(dir, "rec_enc.cast.enc"));
     assert.ok(!raw.includes(Buffer.from("SECRET-OUTPUT")));
-    const { plain, truncated } = openChunks(key, "rec_enc", raw);
+    const { plain, truncated } = openChunks(key, "recording:rec_enc", raw);
     assert.equal(truncated, false);
     const lines = plain.toString().trim().split("\n").map((l) => JSON.parse(l));
     assert.equal(lines[0].width, 90);
@@ -168,7 +168,7 @@ test("encrypted recording keeps writing after the vault key is gone (uses its ow
     rec.writeOutput(Buffer.from("after lock"));
     rec.finalize();
     await rec.closed;
-    const text = openChunks(copy, "rec_lock", readFileSync(join(dir, "rec_lock.cast.enc"))).plain.toString();
+    const text = openChunks(copy, "recording:rec_lock", readFileSync(join(dir, "rec_lock.cast.enc"))).plain.toString();
     assert.ok(text.includes("before lock") && text.includes("after lock"));
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -184,7 +184,7 @@ test("a long encrypted recording is written in several chunks, all readable", as
     rec.finalize();
     await rec.closed;
     const raw = readFileSync(join(dir, "rec_big.cast.enc"));
-    const { plain, truncated } = openChunks(key, "rec_big", raw);
+    const { plain, truncated } = openChunks(key, "recording:rec_big", raw);
     assert.equal(truncated, false);
     const text = plain.toString();
     assert.ok(text.includes("line 0 ") && text.includes("line 2999 "));

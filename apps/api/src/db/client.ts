@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export interface DbConfig {
   /** Absolute path to the data directory. Created if it doesn't exist. */
@@ -114,5 +114,19 @@ export function runColumnMigrations(db: Database.Database): void {
   }
   if (!hasColumn("session_recordings", "format")) {
     db.exec("ALTER TABLE session_recordings ADD COLUMN format TEXT NOT NULL DEFAULT 'plain'");
+  }
+
+  // v6: per-host memory toggle; per-vault memory enable + output retention.
+  if (!hasColumn("hosts", "memory_mode")) {
+    db.exec("ALTER TABLE hosts ADD COLUMN memory_mode TEXT NOT NULL DEFAULT 'on'");
+  }
+  if (!hasColumn("vault_meta", "memory_enabled")) {
+    db.exec("ALTER TABLE vault_meta ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!hasColumn("vault_meta", "memory_output_days")) {
+    db.exec("ALTER TABLE vault_meta ADD COLUMN memory_output_days INTEGER NOT NULL DEFAULT 90");
+  }
+  if (!hasColumn("vault_meta", "memory_last_retention_at")) {
+    db.exec("ALTER TABLE vault_meta ADD COLUMN memory_last_retention_at TEXT");
   }
 }

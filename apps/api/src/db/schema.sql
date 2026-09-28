@@ -233,3 +233,46 @@ CREATE TABLE IF NOT EXISTS session_keys (
   nonce BLOB NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- ─── memory_sessions (v6) ─────────────────────────────────────────
+-- One row per live SSH session that captured commands. `key_id` names the
+-- session_keys row (the same key that seals this session's recording, if
+-- any) used to seal every memory_entries row it owns.
+CREATE TABLE IF NOT EXISTS memory_sessions (
+  id TEXT PRIMARY KEY,
+  server_id TEXT REFERENCES servers(id) ON DELETE SET NULL,
+  host_id TEXT REFERENCES hosts(id) ON DELETE SET NULL,
+  user_id TEXT,
+  username TEXT,
+  key_id TEXT NOT NULL REFERENCES session_keys(id),
+  recording_id TEXT REFERENCES session_recordings(id) ON DELETE SET NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  stats_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_sessions_server ON memory_sessions(server_id);
+
+-- ─── memory_entries (v6) ──────────────────────────────────────────
+-- Plaintext columns are exactly what's needed to filter/sort without
+-- decrypting (spec §4). `data` is the AEAD-sealed {command, output, cwd}
+-- (crypto/data-keys.ts sealEntry/openEntry), bound to its own id via AAD.
+CREATE TABLE IF NOT EXISTS memory_entries (
+  id TEXT PRIMARY KEY,
+  memory_session_id TEXT NOT NULL REFERENCES memory_sessions(id) ON DELETE CASCADE,
+  server_id TEXT REFERENCES servers(id) ON DELETE SET NULL,
+  user_id TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('command','file','pause','outside_change','snapshot_note')),
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  exit_code INTEGER,
+  confidence TEXT,
+  flags TEXT NOT NULL DEFAULT '[]',
+  output_bytes INTEGER NOT NULL DEFAULT 0,
+  output_pruned INTEGER NOT NULL DEFAULT 0,
+  nonce BLOB NOT NULL,
+  data BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_entries_session ON memory_entries(memory_session_id);
+CREATE INDEX IF NOT EXISTS idx_memory_entries_server_time ON memory_entries(server_id, started_at);

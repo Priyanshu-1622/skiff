@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newDataKey, wrapDataKey, unwrapDataKey, sealChunk, openChunks } from "./data-keys.js";
+import { newDataKey, wrapDataKey, unwrapDataKey, sealChunk, openChunks, sealEntry, openEntry } from "./data-keys.js";
 import { randomBytes } from "node:crypto";
 
 test("a data key round-trips through wrapping; wrong vault key is rejected", () => {
@@ -45,4 +45,20 @@ test("reordered, swapped or tampered chunks are rejected", () => {
   assert.throws(() => openChunks(k, "rec_2", a), "chunks are bound to their recording");
   const bad = Buffer.from(a); bad[bad.length - 1] ^= 1;
   assert.throws(() => openChunks(k, "rec_1", bad));
+});
+
+test("sealEntry/openEntry round-trip; wrong key or wrong AAD is rejected", () => {
+  const key = newDataKey();
+  const plain = Buffer.from(JSON.stringify({ command: "whoami", output: "piyup\n", cwd: "/home" }));
+  const { nonce, data } = sealEntry(key, "memory-entry:e1", plain);
+  assert.deepEqual(openEntry(key, "memory-entry:e1", nonce, data), plain);
+  assert.throws(() => openEntry(newDataKey(), "memory-entry:e1", nonce, data));
+  assert.throws(() => openEntry(key, "memory-entry:e2", nonce, data), "AAD binds the entry to its own id");
+});
+
+test("sealEntry never puts the plaintext in the ciphertext", () => {
+  const key = newDataKey();
+  const plain = Buffer.from("a very findable marker string");
+  const { data } = sealEntry(key, "memory-entry:e1", plain);
+  assert.equal(data.includes(plain), false);
 });

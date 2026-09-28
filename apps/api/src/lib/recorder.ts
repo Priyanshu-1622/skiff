@@ -131,7 +131,7 @@ export class SessionRecorder {
     const plain = Buffer.from(this.pending.join(""), "utf8");
     this.pending = [];
     this.pendingBytes = 0;
-    try { this.stream.write(sealChunk(this.key, this.chunkIndex++, this.id, plain)); }
+    try { this.stream.write(sealChunk(this.key, this.chunkIndex++, `recording:${this.id}`, plain)); }
     catch { /* best-effort; never throw into the session path */ }
   }
 
