@@ -17,6 +17,7 @@ import { teamRoutes } from "./routes/team.js";
 import { hostRoutes } from "./routes/hosts.js";
 import { terminalRoutes } from "./routes/terminal.js";
 import { recordingsRoutes } from "./routes/recordings.js";
+import { memoryRoutes } from "./routes/memory.js";
 import { importRoutes } from "./routes/import.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { SessionStore } from "./crypto/session-store.js";
@@ -237,6 +238,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(importRoutes({ sessionStore }));
   await app.register(settingsRoutes({ sessionStore, sessionManager, config, setupGate }));
   await app.register(recordingsRoutes({ sessionStore, sessionManager, dataDir: config.dataDir }));
+  await app.register(memoryRoutes({ sessionStore }));
 
   return app;
 }

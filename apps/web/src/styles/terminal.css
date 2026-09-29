@@ -694,6 +694,7 @@
 
 /* ── Full-page terminal layout (Skiff additions) ──────────── */
 .term-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100vw;
@@ -935,3 +936,74 @@
 .conn__label.connected .dot { background: var(--status-connected); }
 .conn__label.error .dot { background: var(--status-error); }
 .conn__label.idle .dot { background: var(--fg-3); }
+
+/* ── Memory: History drawer ──────────────────────────────── */
+.memdrawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  max-width: 90vw;
+  background: var(--bg-1);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 7;
+  overflow: hidden;
+}
+.memdrawer__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--fg-0);
+}
+.memdrawer__spacer { flex: 1; }
+.memdrawer__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+  padding: 4px;
+}
+.memdrawer__close:hover { opacity: 1; }
+.memdrawer__list {
+  overflow-y: auto;
+  flex: 1;
+}
+.memdrawer__row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--fg-0);
+  font-family: inherit;
+  text-align: left;
+}
+.memdrawer__row-head:hover { background: var(--bg-3); }
+.memdrawer__time { font-size: var(--t-xs); color: var(--fg-2); flex-shrink: 0; }
+.memdrawer__cmd { font-family: var(--font-mono); font-size: var(--t-sm); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memdrawer__status { font-size: var(--t-xs); color: var(--fg-1); flex-shrink: 0; }
+.memdrawer__body { padding: 8px 12px 12px 28px; border-bottom: 1px solid var(--border); }
+.memdrawer__meta { font-size: var(--t-xs); color: var(--fg-2); margin-bottom: 4px; }
+.memdrawer__output {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  color: var(--fg-0);
+}
+.memdrawer__muted { padding: 16px 12px; font-size: var(--t-sm); color: var(--fg-2); }

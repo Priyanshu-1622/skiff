@@ -5,6 +5,7 @@ import { apiGet, apiDelete } from "@/lib/api";
 import { createTerminalSocket, type TerminalMessage } from "@/lib/ws";
 import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
+import { MemoryDrawer } from "@/components/MemoryDrawer";
 
 type ConnState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -49,6 +50,7 @@ export function TerminalRoute() {
   });
   const [reconnectKey, setReconnectKey] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [pendingFp, setPendingFp] = useState<{ fingerprint: string; hostname: string; algorithm?: string } | null>(null);
   // The server presented a different key than the one pinned for this host.
   const [mismatch, setMismatch] = useState<{ expected: string; actual: string; algorithm?: string; canReset: boolean } | null>(null);
@@ -463,6 +465,16 @@ export function TerminalRoute() {
         <button
           type="button"
           className="conn__help"
+          onClick={() => setShowHistory((s) => !s)}
+          title="Command history"
+          aria-label="Toggle command history"
+        >
+          <I.Clock size={12} />
+        </button>
+
+        <button
+          type="button"
+          className="conn__help"
           onClick={() => setShowHelp((s) => !s)}
           title="Keyboard shortcuts"
           aria-label="Show keyboard shortcuts"
@@ -617,6 +629,8 @@ export function TerminalRoute() {
           </div>
         )}
       </div>
+
+      <MemoryDrawer hostId={hostId} open={showHistory} onClose={() => setShowHistory(false)} />
     </div>
   );
 }
