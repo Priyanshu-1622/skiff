@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import * as I from "@/components/icons";
@@ -60,11 +60,29 @@ function EntryRow({ entry }: { entry: TimelineEntry }) {
 }
 
 export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: boolean; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [includeOutput, setIncludeOutput] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(q.trim()), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  const searching = debounced !== "";
+
   const timeline = useQuery({
     queryKey: ["memory-timeline", hostId],
     queryFn: () => apiGet<{ entries: TimelineEntry[] }>(`/api/memory/hosts/${hostId}/timeline`),
-    enabled: open,
-    refetchInterval: open ? 5000 : false,
+    enabled: open && !searching,
+    refetchInterval: open && !searching ? 5000 : false,
+  });
+  const results = useQuery({
+    queryKey: ["memory-search", hostId, debounced, includeOutput],
+    queryFn: () => {
+      const params = new URLSearchParams({ q: debounced, hostId });
+      if (includeOutput) params.set("output", "1");
+      return apiGet<{ entries: TimelineEntry[] }>(`/api/memory/search?${params.toString()}`);
+    },
+    enabled: open && searching,
   });
 
   if (!open) return null;
@@ -79,13 +97,38 @@ export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: 
           <I.Close size={12} />
         </button>
       </div>
+      <div className="memdrawer__searchbar">
+        <input
+          className="memdrawer__search"
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search this host"
+          aria-label="Search history"
+        />
+        <label className="memdrawer__opt">
+          <input type="checkbox" checked={includeOutput} onChange={(e) => setIncludeOutput(e.target.checked)} />
+          Search output too
+        </label>
+      </div>
       <div className="memdrawer__list">
-        {timeline.isLoading && <div className="memdrawer__muted">Loading…</div>}
-        {timeline.isError && <div className="memdrawer__muted">Couldn't load history — the vault may have locked.</div>}
-        {timeline.data && timeline.data.entries.length === 0 && (
-          <div className="memdrawer__muted">No commands recorded yet.</div>
+        {searching ? (
+          <>
+            {results.isLoading && <div className="memdrawer__muted">Searching…</div>}
+            {results.isError && <div className="memdrawer__muted">Couldn't search — the vault may have locked.</div>}
+            {results.data && results.data.entries.length === 0 && <div className="memdrawer__muted">No matches.</div>}
+            {results.data?.entries.map((e) => <EntryRow key={e.id} entry={e} />)}
+          </>
+        ) : (
+          <>
+            {timeline.isLoading && <div className="memdrawer__muted">Loading…</div>}
+            {timeline.isError && <div className="memdrawer__muted">Couldn't load history — the vault may have locked.</div>}
+            {timeline.data && timeline.data.entries.length === 0 && (
+              <div className="memdrawer__muted">No commands recorded yet.</div>
+            )}
+            {timeline.data?.entries.map((e) => <EntryRow key={e.id} entry={e} />)}
+          </>
         )}
-        {timeline.data?.entries.map((e) => <EntryRow key={e.id} entry={e} />)}
       </div>
     </div>
   );

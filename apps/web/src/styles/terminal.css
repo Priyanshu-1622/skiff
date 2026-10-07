@@ -972,6 +972,20 @@
   padding: 4px;
 }
 .memdrawer__close:hover { opacity: 1; }
+.memdrawer__searchbar { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.memdrawer__search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--fg-0);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+}
+.memdrawer__search:focus { outline: none; border-color: var(--border-focus); }
+.memdrawer__opt { display: flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--fg-2); cursor: pointer; }
 .memdrawer__list {
   overflow-y: auto;
   flex: 1;
