@@ -358,3 +358,32 @@ test("output queued far beyond a reasonable backlog degrades capture for the res
   assert.equal(engine.failed, true, "capture degrades rather than queueing an unbounded backlog");
   mirror.dispose();
 });
+
+test("screen mode: a command is captured as soon as its prompt returns, without waiting for the next keystroke or end()", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+
+  await engine.onOutput(BASH_PLAIN.preamble);
+  const seg = BASH_PLAIN.segments[0];
+  typeAndEnter(engine, seg.command);
+  await engine.onOutput(seg.echoAndOutput);
+
+  assert.equal(engine.events.length, 1, "prompt is back on screen: the command is finished");
+  assert.equal(engine.events[0].command, seg.command);
+  assert.equal(engine.events[0].ended, "exited");
+  mirror.dispose();
+});
+
+test("screen mode: the captured output does not end with the returned prompt line", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+
+  await engine.onOutput("$ ");
+  typeAndEnter(engine, "whoami");
+  await engine.onOutput("whoami\r\nfakeuser\r\n$ ");
+
+  assert.equal(engine.events.length, 1);
+  assert.ok(engine.events[0].output.includes("fakeuser"));
+  assert.ok(!/\$\s*$/.test(engine.events[0].output), `output must not end with the prompt, got ${JSON.stringify(engine.events[0].output)}`);
+  mirror.dispose();
+});

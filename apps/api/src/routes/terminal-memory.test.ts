@@ -111,8 +111,8 @@ test("a command run over a real session is captured, redacted-encrypted, and rea
     assert.equal(whoamiRow.kind, "command");
     assert.equal(whoamiRow.confidence, "screen", "this fake shell sends no OSC 133 markers");
     assert.equal(whoamiRow.exit_code, null, "screen mode has no exit-code signal — only marker mode (133;D) provides one");
-    assert.ok(whoamiRow.finished_at, "whoami finished via the real next-keystroke completion path, not the end-of-session fallback");
-    assert.equal(pwdRow.finished_at, null, "pwd is still 'running' when the session ends — no third keystroke completed it (see the engine's own tests for that path)");
+    assert.ok(whoamiRow.finished_at, "whoami finished when its prompt returned");
+    assert.ok(pwdRow.finished_at, "pwd finished when its prompt returned too — the newest command no longer waits for a next keystroke or the end of the session");
 
     const decrypted = loadCommandEntry(db.raw, dataKey!, whoamiRow.id);
     assert.equal(decrypted.command, "whoami");

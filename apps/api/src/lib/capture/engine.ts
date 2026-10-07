@@ -267,7 +267,34 @@ export class CaptureEngine {
       } else if (!altScreen && !this.phase.flags.includes("fullscreen")) {
         this.appendOutput(this.phase, text);
       }
+      if (!altScreen) this.finishIfPromptReturned();
     }
+  }
+
+  /**
+   * Screen mode has no end marker, so the returned prompt is the end signal:
+   * the cursor sits right after the same prompt text the command started at
+   * (the same equality test onInputByte uses, just evaluated when output
+   * arrives instead of waiting for the next keystroke — without this the
+   * newest command wouldn't be saved until another was typed). Marker mode
+   * ends on 133;D and is untouched. A blank prompt prefix can't be told
+   * apart from any line start, so that case still waits for the keystroke.
+   */
+  private finishIfPromptReturned(): void {
+    if (this.phase.name !== "running" || this.phase.confidence !== "screen") return;
+    const p = this.phase;
+    if (p.promptPrefix.trim() === "") return;
+    if (this.mirror.cursorLine().slice(0, this.mirror.cursorX()) !== p.promptPrefix) return;
+    // The mirror's line text may carry the prompt without its trailing space
+    // while the raw output still has it, so compare on the trimmed prompt.
+    const prompt = p.promptPrefix.trimEnd();
+    const body = p.output.trimEnd();
+    if (body.endsWith(prompt)) {
+      const kept = body.slice(0, body.length - prompt.length);
+      p.outputBytes -= Buffer.byteLength(p.output.slice(kept.length), "utf8");
+      p.output = kept;
+    }
+    this.finishScreenCommand();
   }
 
   /** Bounds the live proxy string's retained size regardless of how much output actually arrives; the exact byte-accurate head/tail cut happens once, at emit time, from this (already small) proxy. */
