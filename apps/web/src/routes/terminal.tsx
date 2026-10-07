@@ -6,6 +6,7 @@ import { createTerminalSocket, type TerminalMessage } from "@/lib/ws";
 import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
 import { MemoryDrawer } from "@/components/MemoryDrawer";
+import { MemoryNotice } from "@/components/MemoryNotice";
 
 type ConnState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -507,6 +508,8 @@ export function TerminalRoute() {
       {/* xterm screen */}
       <div className="term__screen-wrap">
         <div ref={termRef} className="term__screen" />
+
+        {connState === "connected" && <MemoryNotice memoryOnForHost={host.data?.memory_mode !== "off"} />}
 
         {/* Host key changed — takes the place of the generic error overlay */}
         {mismatch && (

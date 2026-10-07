@@ -937,6 +937,23 @@
 .conn__label.error .dot { background: var(--status-error); }
 .conn__label.idle .dot { background: var(--fg-3); }
 
+/* ── Memory: first-connect notice ────────────────────────── */
+.memnotice {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  max-width: 460px;
+  z-index: 4;
+  padding: 14px 16px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+}
+.memnotice__title { font-size: var(--t-base); font-weight: 600; color: var(--fg-0); margin-bottom: 6px; }
+.memnotice__text { font-size: var(--t-sm); line-height: var(--lh-normal); color: var(--fg-1); }
+.memnotice__actions { margin-top: 10px; display: flex; justify-content: flex-end; }
+
 /* ── Memory: History drawer ──────────────────────────────── */
 .memdrawer {
   position: absolute;
