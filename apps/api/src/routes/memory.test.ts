@@ -293,3 +293,156 @@ test("team mode: a member sees only their own entries, another member gets 404 b
     sshd.close();
   }
 });
+
+async function appWithHost(sshd: any) {
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const base = `127.0.0.1:${(app.server.address() as any).port}`;
+  const setup = await app.inject({ method: "POST", url: "/api/vault/setup", payload: { password: "master-pass-1" } });
+  const cookie = cookieFrom(setup);
+  const host = (await app.inject({
+    method: "POST", url: "/api/hosts", headers: { cookie },
+    payload: { label: "t", hostname: "127.0.0.1", port: sshd.address().port, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+  })).json() as any;
+  return { app, base, cookie, hostId: host.data.id as string };
+}
+
+const search = (app: any, cookie: string, qs: string) =>
+  app.inject({ method: "GET", url: `/api/memory/search?${qs}`, headers: { cookie } });
+
+test("search finds a captured command by word and by prefix, returns timeline-shaped hits without output, and [] for no match", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    const res = await search(app, cookie, "q=whoami");
+    assert.equal(res.statusCode, 200);
+    const { entries } = (res.json() as any).data;
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].command, "whoami");
+    assert.equal(entries[0].hostId, hostId);
+    assert.ok(entries[0].id && entries[0].startedAt);
+    assert.equal("output" in entries[0], false);
+    assert.deepEqual(((await search(app, cookie, "q=pw")).json() as any).data.entries.map((e: any) => e.command), ["pwd"]);
+    assert.deepEqual(((await search(app, cookie, "q=nomatchzzz")).json() as any).data.entries, []);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("search can be scoped to a host", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    const other = (await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie },
+      payload: { label: "o", hostname: "10.0.0.9", port: 22, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+    })).json() as any;
+    await runTwoCommands(hostId, base, cookie);
+    assert.equal(((await search(app, cookie, `q=whoami&hostId=${hostId}`)).json() as any).data.entries.length, 1);
+    assert.deepEqual(((await search(app, cookie, `q=whoami&hostId=${other.data.id}`)).json() as any).data.entries, []);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("output is searched only when output=1", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    assert.deepEqual(((await search(app, cookie, "q=fakeuser")).json() as any).data.entries, []);
+    const withOutput = ((await search(app, cookie, "q=fakeuser&output=1")).json() as any).data.entries;
+    assert.deepEqual(withOutput.map((e: any) => e.command), ["whoami"]);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("commands captured after the first search are found by a later search, without duplicating earlier hits", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    const first = ((await search(app, cookie, "q=whoami")).json() as any).data.entries;
+    assert.equal(first.length, 1);
+    await runTwoCommands(hostId, base, cookie);
+    const second = ((await search(app, cookie, "q=whoami")).json() as any).data.entries;
+    assert.equal(second.length, 2);
+    assert.equal(new Set(second.map((e: any) => e.id)).size, 2, "two distinct entries, none repeated");
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("odd search input never errors", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    for (const q of ['"', "*", "AND", "(", "NEAR(", "-", "  ", "", "a:b"]) {
+      const res = await search(app, cookie, `q=${encodeURIComponent(q)}`);
+      assert.equal(res.statusCode, 200, `q=${JSON.stringify(q)}`);
+      assert.ok(Array.isArray((res.json() as any).data.entries));
+    }
+    assert.equal((await search(app, cookie, "")).statusCode, 200, "missing q is an empty result, not an error");
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("search without a login is refused", async () => {
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  try {
+    await app.inject({ method: "POST", url: "/api/vault/setup", payload: { password: "master-pass-1" } });
+    const res = await app.inject({ method: "GET", url: "/api/memory/search?q=whoami" });
+    assert.equal(res.statusCode, 401);
+  } finally { await app.close(); }
+});
+
+test("team mode: a member only finds their own commands; an admin finds everyone's", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const base = `127.0.0.1:${(app.server.address() as any).port}`;
+  try {
+    const setup = await app.inject({
+      method: "POST", url: "/api/vault/setup",
+      payload: { password: "admin-password-1", mode: "team", username: "admin" },
+    });
+    const adminCookie = cookieFrom(setup);
+    const host = (await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie: adminCookie },
+      payload: { label: "t", hostname: "127.0.0.1", port: sshd.address().port, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+    })).json() as any;
+    const login = async (username: string) => {
+      await app.inject({
+        method: "POST", url: "/api/team/users", headers: { cookie: adminCookie },
+        payload: { username, tempPassword: `${username}-temp-password`, isAdmin: false },
+      });
+      return cookieFrom(await app.inject({ method: "POST", url: "/api/team/login", payload: { username, password: `${username}-temp-password` } }));
+    };
+    const bobCookie = await login("bob");
+    const carolCookie = await login("carol");
+    await runTwoCommands(host.data.id, base, bobCookie);
+
+    const hits = async (cookie: string) => ((await search(app, cookie, "q=whoami")).json() as any).data.entries;
+    assert.equal((await hits(bobCookie)).length, 1);
+    assert.deepEqual(await hits(carolCookie), [], "another member cannot find it by searching");
+    assert.equal((await hits(adminCookie)).length, 1);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("after lock and unlock the search still works, rebuilt from the database", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    assert.equal(((await search(app, cookie, "q=whoami")).json() as any).data.entries.length, 1);
+    await app.inject({ method: "POST", url: "/api/vault/lock", headers: { cookie } });
+    assert.equal((await search(app, cookie, "q=whoami")).statusCode, 401, "locked: nothing is searchable");
+    const unlocked = await app.inject({ method: "POST", url: "/api/vault/unlock", payload: { password: "master-pass-1" } });
+    const cookie2 = cookieFrom(unlocked);
+    assert.equal(((await search(app, cookie2, "q=whoami")).json() as any).data.entries.length, 1);
+  } finally { await app.close(); sshd.close(); }
+});
