@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiDelete, apiGet } from "@/lib/api";
 import * as I from "@/components/icons";
 
 interface TimelineEntry {
@@ -29,6 +29,19 @@ function statusLabel(entry: TimelineEntry): string {
 
 function EntryRow({ entry }: { entry: TimelineEntry }) {
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const queryClient = useQueryClient();
+  const forget = useMutation({
+    mutationFn: () => apiDelete(`/api/memory/entries/${entry.id}`),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["memory-timeline"] }),
+        queryClient.invalidateQueries({ queryKey: ["memory-search"] }),
+      ]);
+      // The row is gone by now; drop the cached detail so forgotten text doesn't linger in the browser.
+      queryClient.removeQueries({ queryKey: ["memory-entry", entry.id] });
+    },
+  });
   const detail = useQuery({
     queryKey: ["memory-entry", entry.id],
     queryFn: () => apiGet<EntryDetail>(`/api/memory/entries/${entry.id}`),
@@ -53,6 +66,24 @@ function EntryRow({ entry }: { entry: TimelineEntry }) {
               <pre className="memdrawer__output">{detail.data.output || "(no output)"}</pre>
             </>
           )}
+          <div className="memdrawer__footer">
+            {!confirming ? (
+              <button type="button" className="memdrawer__forget" onClick={() => setConfirming(true)}>
+                Forget
+              </button>
+            ) : (
+              <div className="memdrawer__confirm">
+                <span>Forget this entry for good?</span>
+                <button type="button" className="memdrawer__forget memdrawer__forget-yes" disabled={forget.isPending} onClick={() => forget.mutate()}>
+                  Yes, forget
+                </button>
+                <button type="button" className="memdrawer__cancel" disabled={forget.isPending} onClick={() => setConfirming(false)}>
+                  Cancel
+                </button>
+              </div>
+            )}
+            {forget.isError && <div className="memdrawer__err">Couldn't forget it.</div>}
+          </div>
         </div>
       )}
     </div>

@@ -1020,4 +1020,20 @@
   margin: 0;
   color: var(--fg-0);
 }
+.memdrawer__footer { margin-top: 8px; }
+.memdrawer__forget, .memdrawer__cancel {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--t-xs);
+}
+.memdrawer__forget { color: var(--status-error); }
+.memdrawer__forget:hover:not(:disabled) { text-decoration: underline; }
+.memdrawer__cancel { color: var(--fg-1); }
+.memdrawer__cancel:hover:not(:disabled) { text-decoration: underline; }
+.memdrawer__forget:disabled, .memdrawer__cancel:disabled { opacity: 0.5; cursor: default; }
+.memdrawer__confirm { display: flex; align-items: center; gap: 10px; font-size: var(--t-xs); color: var(--fg-1); }
+.memdrawer__err { margin-top: 4px; font-size: var(--t-xs); color: var(--status-error); }
 .memdrawer__muted { padding: 16px 12px; font-size: var(--t-sm); color: var(--fg-2); }
