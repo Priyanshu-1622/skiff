@@ -446,3 +446,100 @@ test("after lock and unlock the search still works, rebuilt from the database", 
     assert.equal(((await search(app, cookie2, "q=whoami")).json() as any).data.entries.length, 1);
   } finally { await app.close(); sshd.close(); }
 });
+
+const forget = (app: any, cookie: string | null, id: string) =>
+  app.inject({ method: "DELETE", url: `/api/memory/entries/${id}`, headers: cookie ? { cookie } : {} });
+
+const timelineCommands = async (app: any, cookie: string, hostId: string) =>
+  ((await app.inject({ method: "GET", url: `/api/memory/hosts/${hostId}/timeline`, headers: { cookie } })).json() as any).data.entries.map((e: any) => e.command);
+
+test("forgetting an entry removes it from the timeline, the detail view and the search index, and leaves the others", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    const hit = ((await search(app, cookie, "q=whoami")).json() as any).data.entries;
+    assert.equal(hit.length, 1, "the index is built and holds the entry");
+    const res = await forget(app, cookie, hit[0].id);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(await timelineCommands(app, cookie, hostId), ["pwd"]);
+    assert.equal((await app.inject({ method: "GET", url: `/api/memory/entries/${hit[0].id}`, headers: { cookie } })).statusCode, 404);
+    assert.deepEqual(((await search(app, cookie, "q=whoami")).json() as any).data.entries, []);
+    assert.equal(((await search(app, cookie, "q=pwd")).json() as any).data.entries.length, 1);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("forgetting twice, or an unknown id, is a plain 404; without a login it is a 401", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    const id = ((await search(app, cookie, "q=whoami")).json() as any).data.entries[0].id;
+    assert.equal((await forget(app, cookie, id)).statusCode, 200);
+    assert.equal((await forget(app, cookie, id)).statusCode, 404);
+    assert.equal((await forget(app, cookie, "nope")).statusCode, 404);
+    assert.equal((await forget(app, null, id)).statusCode, 401);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("a new command captured after forgetting the newest entry is still searchable (rowid reuse)", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie); // whoami, pwd
+    const pwdId = ((await search(app, cookie, "q=pwd")).json() as any).data.entries[0].id; // builds the index
+    assert.equal((await forget(app, cookie, pwdId)).statusCode, 200);
+    await runTwoCommands(hostId, base, cookie); // whoami, pwd again; the first of these reuses the freed rowid
+    assert.equal(((await search(app, cookie, "q=whoami")).json() as any).data.entries.length, 2);
+    assert.equal(((await search(app, cookie, "q=pwd")).json() as any).data.entries.length, 1);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("team mode: a member can forget only their own entries, an admin anyone's, and the audit row carries no command text", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const base = `127.0.0.1:${(app.server.address() as any).port}`;
+  try {
+    const setup = await app.inject({
+      method: "POST", url: "/api/vault/setup",
+      payload: { password: "admin-password-1", mode: "team", username: "admin" },
+    });
+    const adminCookie = cookieFrom(setup);
+    const host = (await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie: adminCookie },
+      payload: { label: "t", hostname: "127.0.0.1", port: sshd.address().port, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+    })).json() as any;
+    const login = async (username: string) => {
+      await app.inject({
+        method: "POST", url: "/api/team/users", headers: { cookie: adminCookie },
+        payload: { username, tempPassword: `${username}-temp-password`, isAdmin: false },
+      });
+      return cookieFrom(await app.inject({ method: "POST", url: "/api/team/login", payload: { username, password: `${username}-temp-password` } }));
+    };
+    const bobCookie = await login("bob");
+    const carolCookie = await login("carol");
+    await runTwoCommands(host.data.id, base, bobCookie);
+    const entries = ((await app.inject({ method: "GET", url: `/api/memory/hosts/${host.data.id}/timeline`, headers: { cookie: bobCookie } })).json() as any).data.entries;
+    const whoamiId = entries.find((e: any) => e.command === "whoami").id;
+    const pwdId = entries.find((e: any) => e.command === "pwd").id;
+
+    assert.equal((await forget(app, carolCookie, whoamiId)).statusCode, 404, "another member cannot forget it");
+    assert.deepEqual((await timelineCommands(app, bobCookie, host.data.id)).sort(), ["pwd", "whoami"], "and it is still there");
+    assert.equal((await forget(app, bobCookie, whoamiId)).statusCode, 200, "the owner can");
+    assert.equal((await forget(app, adminCookie, pwdId)).statusCode, 200, "an admin can forget anyone's");
+    assert.deepEqual(await timelineCommands(app, adminCookie, host.data.id), []);
+
+    const audit = db.raw.prepare("SELECT username, resource_type, resource_id, detail FROM audit_log WHERE action = 'memory.forget' ORDER BY id").all() as any[];
+    assert.equal(audit.length, 2);
+    assert.deepEqual(audit.map((a) => a.username), ["bob", "admin"]);
+    assert.equal(audit[0].resource_id, whoamiId);
+    assert.equal(audit[0].resource_type, "memory_entry");
+    assert.ok(!audit[0].detail.includes("whoami") && !audit[1].detail.includes("pwd"), "no command text in the audit detail");
+  } finally { await app.close(); sshd.close(); }
+});

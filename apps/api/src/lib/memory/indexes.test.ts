@@ -153,3 +153,39 @@ test("destroying the login while a catch-up is still running waits for it instea
   assert.equal(indexes.has(loginId), false);
   done();
 });
+
+test("forget removes the entry from every live login's index", async () => {
+  const { db, vaultKey, indexes, done } = setup();
+  seed(db, vaultKey, "k1", null, ["whoami", "pwd"]);
+  const a = await indexes.forLogin("loginA", vaultKey, null);
+  const b = await indexes.forLogin("loginB", vaultKey, null);
+  const id = a.search("whoami")[0].id;
+  db.prepare("DELETE FROM memory_entries WHERE id = ?").run(id);
+  await indexes.forget(id);
+  assert.deepEqual(a.search("whoami"), []);
+  assert.deepEqual(b.search("whoami"), []);
+  assert.equal(a.search("pwd").length, 1);
+  done();
+});
+
+test("after forgetting the newest entry, a new entry that reuses its rowid is still indexed", async () => {
+  const { db, vaultKey, indexes, done } = setup();
+  const s = seed(db, vaultKey, "k1", null, ["whoami", "pwd", "uptime"]);
+  const ix = await indexes.forLogin("login1", vaultKey, null);
+  const newest = ix.search("uptime")[0].id;
+  db.prepare("DELETE FROM memory_entries WHERE id = ?").run(newest);
+  await indexes.forget(newest);
+  saveCommandEntry(db, s.dataKey, { memorySessionId: s.memorySessionId, serverId: null, userId: null, event: ev("df -h") });
+  const reused = (db.prepare("SELECT rowid AS r FROM memory_entries WHERE rowid = 3").get() as { r: number } | undefined)?.r;
+  assert.equal(reused, 3, "the precondition: SQLite did reuse rowid 3");
+  await indexes.forLogin("login1", vaultKey, null);
+  assert.equal(ix.search("df").length, 1, "the command that reused the rowid is searchable");
+  assert.equal(ix.size(), 3);
+  done();
+});
+
+test("forget with no live indexes is a no-op", async () => {
+  const { indexes, done } = setup();
+  await assert.doesNotReject(indexes.forget("anything"));
+  done();
+});

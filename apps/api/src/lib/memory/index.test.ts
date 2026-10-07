@@ -88,3 +88,39 @@ test("toMatchQuery quotes every term, prefixes the last, and returns null for no
   assert.equal(toMatchQuery("   ", false), null);
   assert.equal(toMatchQuery('""', false), null);
 });
+
+test("remove deletes an entry from search and size, and reports whether it was indexed", () => {
+  const ix = new MemoryIndex();
+  ix.add(doc(1, { command: "echo secret-token" }));
+  ix.add(doc(2, { command: "echo fine" }));
+  assert.equal(ix.remove("m1"), true);
+  assert.deepEqual(ix.search("secret"), []);
+  assert.equal(ix.size(), 1);
+  assert.equal(ix.remove("m1"), false, "already gone");
+  assert.equal(ix.remove("nope"), false);
+  ix.close();
+});
+
+test("remove resets the watermark to the highest remaining rowid, so a reused rowid is indexed again", () => {
+  const ix = new MemoryIndex();
+  ix.add(doc(1)); ix.add(doc(2)); ix.add(doc(3));
+  assert.equal(ix.watermark, 3);
+  ix.remove("m3");
+  assert.equal(ix.watermark, 2, "SQLite reuses rowid 3 for the next entry; catch-up must not skip it");
+  ix.add(doc(3, { id: "m3b", command: "uname -a" }));
+  assert.deepEqual(ix.search("uname").map((h) => h.id), ["m3b"]);
+  const empty = new MemoryIndex();
+  empty.add(doc(5)); empty.remove("m5");
+  assert.equal(empty.watermark, 0);
+  empty.close(); ix.close();
+});
+
+test("remove of an id that was never indexed still resets a skip-advanced watermark", () => {
+  const ix = new MemoryIndex();
+  ix.add(doc(1));
+  ix.skip(2); // row 2 was unreadable, so the watermark moved past it
+  assert.equal(ix.watermark, 2);
+  ix.remove("not-indexed"); // row 2 is later deleted from the database
+  assert.equal(ix.watermark, 1);
+  ix.close();
+});

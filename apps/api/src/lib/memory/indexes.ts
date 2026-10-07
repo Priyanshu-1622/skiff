@@ -85,6 +85,15 @@ export class MemoryIndexes {
     }
   }
 
+  /** Removes an entry (already deleted from the database) from every live login's index, after any catch-up still running. */
+  async forget(entryId: string): Promise<void> {
+    await Promise.all([...this.slots.values()].map((slot) => {
+      const run = slot.chain.then(() => { slot.index.remove(entryId); });
+      slot.chain = run.catch(() => {});
+      return run;
+    }));
+  }
+
   private drop(loginId: string): void {
     const slot = this.slots.get(loginId);
     if (!slot) return;

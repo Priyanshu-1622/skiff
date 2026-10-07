@@ -4,6 +4,7 @@ import { requireUnlocked } from "../lib/auth-middleware.js";
 import { openEntry } from "../crypto/data-keys.js";
 import { makeKeyCache } from "../lib/memory/keys.js";
 import { MemoryIndexes } from "../lib/memory/indexes.js";
+import { writeAudit } from "../lib/audit.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 
@@ -141,5 +142,28 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
         limit: parseInt(limit ?? "50", 10) || 50,
       });
       return reply.send(ok({ entries }));
+    });
+
+    app.delete("/api/memory/entries/:id", { preHandler: auth }, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const db = app.skiffDb.raw;
+      const row = db.prepare(
+        `SELECT me.id, me.user_id, ms.host_id
+           FROM memory_entries me JOIN memory_sessions ms ON ms.id = me.memory_session_id
+          WHERE me.id = ?`,
+      ).get(id) as { id: string; user_id: string | null; host_id: string | null } | undefined;
+      if (!row) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
+      if (isTeam() && !req.sessionUser?.isAdmin && row.user_id !== req.sessionUser?.id) {
+        return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
+      }
+      db.prepare("DELETE FROM memory_entries WHERE id = ?").run(id);
+      await indexes.forget(id);
+      if (req.sessionUser) {
+        writeAudit(db, {
+          user: req.sessionUser, action: "memory.forget", resourceType: "memory_entry", resourceId: id,
+          detail: { hostId: row.host_id, ownerUserId: row.user_id }, ip: req.ip,
+        });
+      }
+      return reply.send(ok({ id }));
     });
   };

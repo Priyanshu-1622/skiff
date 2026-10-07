@@ -66,6 +66,18 @@ export class MemoryIndex {
     if (rowid > this.watermark) this.watermark = rowid;
   }
 
+  remove(id: string): boolean {
+    const row = this.db.prepare("SELECT rowid AS rid FROM meta WHERE id = ?").get(id) as { rid: number } | undefined;
+    if (row) {
+      this.db.prepare("DELETE FROM fts WHERE rowid = ?").run(row.rid);
+      this.db.prepare("DELETE FROM meta WHERE rowid = ?").run(row.rid);
+    }
+    // SQLite reuses the highest rowid after a delete, so a watermark left at the old maximum would skip the next entry written there.
+    const max = this.db.prepare("SELECT MAX(rowid) AS m FROM meta").get() as { m: number | null };
+    this.watermark = max.m ?? 0;
+    return !!row;
+  }
+
   search(q: string, opts: SearchOptions = {}): IndexHit[] {
     const match = toMatchQuery(q, !!opts.includeOutput);
     if (!match) return [];
