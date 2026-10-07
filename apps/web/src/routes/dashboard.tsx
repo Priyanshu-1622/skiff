@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/shell";
-import { useVault } from "@/lib/vault";
+import { useVault, isVaultOwner } from "@/lib/vault";
 import { useTheme } from "@/lib/theme";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -588,6 +588,10 @@ function HostDialog({
   const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const { status } = useVault();
+  const canChangeMemory = isVaultOwner(status);
+  const rememberWas = existing?.memory_mode !== "off";
+  const [remember, setRemember] = useState(rememberWas);
 
   // Hostname validation: non-empty, reasonable chars
   const validate = () => {
@@ -633,6 +637,9 @@ function HostDialog({
         await apiPost("/api/hosts", payload);
       } else {
         await apiPut(`/api/hosts/${existing.id}`, payload);
+        if (canChangeMemory && remember !== rememberWas) {
+          await apiPut(`/api/hosts/${existing.id}/memory`, { memoryMode: remember ? "on" : "off" });
+        }
       }
       onClose(true);
     } catch (err: any) {
@@ -757,6 +764,29 @@ function HostDialog({
                 placeholder={mode === "edit" ? "Only needed with a new key" : "Leave blank for an unencrypted key"}
                 autoComplete="new-password"
               />
+            </div>
+          )}
+          {mode === "edit" && (
+            <div className="field">
+              <label>Memory</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={remember}
+                  aria-label="Remember commands on this host"
+                  className={"s-toggle" + (remember ? " s-toggle--on" : "")}
+                  disabled={!canChangeMemory}
+                  onClick={() => setRemember((r) => !r)}
+                >
+                  <span className="s-toggle__knob" />
+                </button>
+                <span style={{ fontSize: 12, color: "var(--fg-2)" }}>
+                  {canChangeMemory
+                    ? "Remember commands on this host. Takes effect the next time you connect."
+                    : "Only an admin can change this."}
+                </span>
+              </div>
             </div>
           )}
           {errors.form && <div className="field-error">{errors.form}</div>}

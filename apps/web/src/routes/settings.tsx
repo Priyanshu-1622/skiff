@@ -7,9 +7,9 @@ import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
 
-type Section = "security" | "import" | "backup" | "about" | "team";
+type Section = "security" | "memory" | "import" | "backup" | "about" | "team";
 
-const SECTIONS: Section[] = ["security", "import", "backup", "about", "team"];
+const SECTIONS: Section[] = ["security", "memory", "import", "backup", "about", "team"];
 
 function readSectionFromHash(): Section {
   if (typeof window === "undefined") return "security";
@@ -51,6 +51,7 @@ export function SettingsRoute() {
 
   const nav = [
     { id: "security" as Section, label: "Security", icon: <I.Lock size={14} /> },
+    { id: "memory"   as Section, label: "Memory",   icon: <I.Clock size={14} /> },
     { id: "import"   as Section, label: "Import",   icon: <I.ArrowRight size={14} /> },
     ...(owner ? [{ id: "backup" as Section, label: "Backup", icon: <I.Server size={14} /> }] : []),
     { id: "about"    as Section, label: "About",    icon: <I.Info size={14} /> },
@@ -103,6 +104,7 @@ export function SettingsRoute() {
         <div className="settings-pane__scroll">
           <div className="settings-pane__inner">
             {section === "security" && <SecuritySection />}
+            {section === "memory"   && <MemorySection />}
             {section === "import"   && <ImportSection />}
             {section === "backup"   && owner && <BackupSection />}
             {section === "about"    && <AboutSection />}
@@ -262,6 +264,85 @@ function SecuritySection() {
         </div>
       </div>
       </>}
+    </>
+  );
+}
+
+function MemorySection() {
+  const { status, fetchStatus } = useVault();
+  const owner = isVaultOwner(status);
+  const memoryOn = status?.memoryEnabled !== false;
+  const [days, setDays] = useState(String(status?.memoryOutputDays ?? 90));
+  // Show the saved value once the status arrives (it's empty on a fresh load).
+  useEffect(() => {
+    if (status) setDays(String(status.memoryOutputDays));
+  }, [status?.memoryOutputDays]); // eslint-disable-line react-hooks/exhaustive-deps
+  const daysNum = parseInt(days, 10);
+  const daysValid = Number.isInteger(daysNum) && daysNum >= 1 && daysNum <= 3650;
+
+  const save = useMutation({
+    mutationFn: (v: { enabled: boolean; outputDays: number }) => apiPut("/api/settings/memory", v),
+    onSuccess: () => { toast.success("Memory settings saved"); fetchStatus(); },
+    onError: (e: any) => toast.error("Couldn't save Memory settings", { description: e.message }),
+  });
+
+  return (
+    <>
+      <div className="settings-pane__head">
+        <h1 className="settings-pane__h1">Memory</h1>
+        <p className="settings-pane__sub">Skiff can remember what you run on your servers, so you can search it later.</p>
+      </div>
+
+      <div className="s-section">
+        <div className="s-section__head">
+          <div className="s-section__title">Command memory</div>
+        </div>
+        <div className="s-section__body">
+          <div className="s-row">
+            <div>
+              <div className="s-row__label">Remember commands</div>
+              <div className="s-row__desc">
+                Save the commands you run over SSH, and what they print, encrypted on this server. Turning this off stops
+                new capture; what's already saved stays until you forget it. Sessions that are open right now keep
+                remembering until they end.
+              </div>
+            </div>
+            <div className="s-row__control">
+              <button
+                role="switch"
+                aria-checked={memoryOn}
+                aria-label="Remember commands"
+                className={"s-toggle" + (memoryOn ? " s-toggle--on" : "")}
+                disabled={!owner || save.isPending}
+                onClick={() => save.mutate({ enabled: !memoryOn, outputDays: daysValid ? daysNum : (status?.memoryOutputDays ?? 90) })}
+              >
+                <span className="s-toggle__knob" />
+              </button>
+            </div>
+          </div>
+          <div className="s-row">
+            <div>
+              <div className="s-row__label">Keep command output for</div>
+              <div className="s-row__desc">Older output is trimmed to save space. The commands themselves are kept.</div>
+            </div>
+            <div className="s-row__control" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="number" min={1} max={3650} value={days} disabled={!owner} aria-label="Days to keep command output" onChange={e => setDays(e.target.value)}
+                style={{ width: 72, background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "5px 8px", color: "var(--fg-0)", fontFamily: "var(--font-mono)", fontSize: 13, outline: "none", textAlign: "right" }} />
+              <span style={{ fontSize: 12, color: "var(--fg-2)" }}>days</span>
+              <button className="btn btn--secondary" style={{ height: 28, padding: "0 10px", fontSize: 12 }} disabled={!owner || !daysValid || save.isPending}
+                onClick={() => save.mutate({ enabled: memoryOn, outputDays: daysNum })}>Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="s-section" style={{ marginTop: 14 }}>
+        <div className="s-section__body" style={{ paddingTop: 12, fontSize: 13, color: "var(--fg-2)", lineHeight: 1.6 }}>
+          {owner
+            ? "You can also switch Memory off for a single host from that host's edit dialog."
+            : "These settings are managed by your team's admins."}
+        </div>
+      </div>
     </>
   );
 }

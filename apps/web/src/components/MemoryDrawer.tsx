@@ -105,6 +105,7 @@ export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: 
     queryFn: () => apiGet<{ entries: TimelineEntry[] }>(`/api/memory/hosts/${hostId}/timeline`),
     enabled: open && !searching,
     refetchInterval: open && !searching ? 5000 : false,
+    staleTime: 0, // History must be current whenever it is opened, not the app-wide 30 s
   });
   const results = useQuery({
     queryKey: ["memory-search", hostId, debounced, includeOutput],
@@ -114,6 +115,7 @@ export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: 
       return apiGet<{ entries: TimelineEntry[] }>(`/api/memory/search?${params.toString()}`);
     },
     enabled: open && searching,
+    staleTime: 0,
   });
 
   if (!open) return null;
