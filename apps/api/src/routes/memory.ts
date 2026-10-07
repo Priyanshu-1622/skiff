@@ -144,6 +144,16 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
       return reply.send(ok({ entries }));
     });
 
+    app.post("/api/memory/notice-seen", { preHandler: auth }, async (req, reply) => {
+      const db = app.skiffDb.raw;
+      if (isTeam() && req.sessionUser) {
+        db.prepare("UPDATE users SET memory_notice_seen = 1 WHERE id = ?").run(req.sessionUser.id);
+      } else {
+        db.prepare("UPDATE vault_meta SET memory_notice_seen = 1 WHERE id = 1").run();
+      }
+      return reply.send(ok({ seen: true }));
+    });
+
     app.delete("/api/memory/entries/:id", { preHandler: auth }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const db = app.skiffDb.raw;

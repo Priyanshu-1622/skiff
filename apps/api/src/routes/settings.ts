@@ -121,6 +121,18 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
       return ok({ recordingEnabled: body.enabled });
     });
 
+    app.put("/api/settings/memory", { preHandler: ownerOnly }, async (req) => {
+      const body = z.object({ enabled: z.boolean(), outputDays: z.number().int().min(1).max(3650) }).parse(req.body);
+      app.skiffDb.raw
+        .prepare("UPDATE vault_meta SET memory_enabled = ?, memory_output_days = ? WHERE id = 1")
+        .run(body.enabled ? 1 : 0, body.outputDays);
+      writeAudit(app.skiffDb.raw, {
+        user: req.sessionUser, action: "settings.memory",
+        detail: { enabled: body.enabled, outputDays: body.outputDays }, ip: req.ip,
+      });
+      return ok({ memoryEnabled: body.enabled, memoryOutputDays: body.outputDays });
+    });
+
     app.get("/api/settings/backup", { preHandler: ownerOnly }, async (req) => {
       const db = app.skiffDb.raw;
       // A backup is every credential in the vault — always leave a trace.

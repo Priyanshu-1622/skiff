@@ -129,4 +129,11 @@ export function runColumnMigrations(db: Database.Database): void {
   if (!hasColumn("vault_meta", "memory_last_retention_at")) {
     db.exec("ALTER TABLE vault_meta ADD COLUMN memory_last_retention_at TEXT");
   }
+  // First-connect notice: seen once per vault (personal) or per user (team).
+  if (!hasColumn("vault_meta", "memory_notice_seen")) {
+    db.exec("ALTER TABLE vault_meta ADD COLUMN memory_notice_seen INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn("users", "memory_notice_seen")) {
+    db.exec("ALTER TABLE users ADD COLUMN memory_notice_seen INTEGER NOT NULL DEFAULT 0");
+  }
 }

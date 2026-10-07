@@ -284,6 +284,20 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
     // new one — for a server that was legitimately rebuilt. Accepting a changed
     // key is exactly what a man-in-the-middle wants, so it's owner/admin only
     // and audited with the key being forgotten.
+    app.put("/api/hosts/:id/memory", { preHandler: ownerOnly }, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = z.object({ memoryMode: z.enum(["on", "off"]) }).parse(req.body);
+      const db = app.skiffDb.raw;
+      const host = db.prepare("SELECT id FROM hosts WHERE id = ?").get(id);
+      if (!host) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Host not found"));
+      db.prepare("UPDATE hosts SET memory_mode = ? WHERE id = ?").run(body.memoryMode, id);
+      writeAudit(db, {
+        user: req.sessionUser, action: "host.memory", resourceType: "host", resourceId: id,
+        detail: { memoryMode: body.memoryMode }, ip: req.ip,
+      });
+      return reply.send(ok({ id, memoryMode: body.memoryMode }));
+    });
+
     app.delete("/api/hosts/:id/known-host", { preHandler: ownerOnly }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const db = app.skiffDb.raw;

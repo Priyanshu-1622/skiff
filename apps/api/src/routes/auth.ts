@@ -54,15 +54,27 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
       reply.header("Cache-Control", "no-store");
       const db = app.skiffDb.raw;
       const meta = db.prepare("SELECT * FROM vault_meta WHERE id = 1").get() as
-        | { idle_timeout_minutes: number; mode?: string; recording_enabled?: number } | undefined;
+        | { idle_timeout_minutes: number; mode?: string; recording_enabled?: number; memory_enabled?: number; memory_output_days?: number; memory_notice_seen?: number } | undefined;
       const sessionId = req.cookies?.skiff_session;
       const entry = sessionId ? sessionStore.getEntry(sessionId) : null;
+      let memoryNoticeSeen: boolean | null = null;
+      if (entry) {
+        if (entry.user) {
+          const u = db.prepare("SELECT memory_notice_seen FROM users WHERE id = ?").get(entry.user.id) as { memory_notice_seen: number } | undefined;
+          memoryNoticeSeen = !!u?.memory_notice_seen;
+        } else {
+          memoryNoticeSeen = !!meta?.memory_notice_seen;
+        }
+      }
       return ok({
         initialized: !!meta,
         unlocked: !!entry,
         mode: meta?.mode ?? "personal",
         idleTimeoutMinutes: meta?.idle_timeout_minutes ?? 15,
         recordingEnabled: !!meta?.recording_enabled,
+        memoryEnabled: meta ? !!meta.memory_enabled : true,
+        memoryOutputDays: meta?.memory_output_days ?? 90,
+        memoryNoticeSeen,
         setupTokenRequired: !meta && setupGate.required,
         insecureTransport: cookieWouldBeDropped(req, config),
         user: entry?.user ? { ...entry.user, mustChangePassword: mustChange(entry.user.id) } : null,

@@ -40,6 +40,10 @@ export interface VaultStatus {
   unlocked: boolean;
   idleTimeoutMinutes: number;
   recordingEnabled: boolean;
+  memoryEnabled: boolean;
+  memoryOutputDays: number;
+  /** Whether this login has dismissed the first-connect Memory notice; null when not unlocked. */
+  memoryNoticeSeen: boolean | null;
   /** Before a vault exists: setup/restore must send the token from the server log. */
   setupTokenRequired?: boolean;
   /** Signing in here would fail: plain HTTP + Secure cookie (see cookieWouldBeDropped). */
