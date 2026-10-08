@@ -276,3 +276,25 @@ CREATE TABLE IF NOT EXISTS memory_entries (
 
 CREATE INDEX IF NOT EXISTS idx_memory_entries_session ON memory_entries(memory_session_id);
 CREATE INDEX IF NOT EXISTS idx_memory_entries_server_time ON memory_entries(server_id, started_at);
+
+-- ─── Phase C: file versions (v6) ─────────────────────────────────
+-- Watched paths per server. The real path is sealed under the server's file
+-- key (path_nonce/path_data); path_hash = HMAC(file key, path) is only a lookup key.
+CREATE TABLE IF NOT EXISTS server_files (
+  server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  path_hash TEXT NOT NULL,
+  path_nonce BLOB NOT NULL,
+  path_data BLOB NOT NULL,
+  last_content_id TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (server_id, path_hash)
+);
+
+-- File versions, sealed under the server's file key; id = HMAC(file key, text).
+CREATE TABLE IF NOT EXISTS file_contents (
+  id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  nonce BLOB NOT NULL,
+  data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_contents_server ON file_contents(server_id);

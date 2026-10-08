@@ -6,6 +6,9 @@ import { makeKeyCache } from "../lib/memory/keys.js";
 import { MemoryIndexes } from "../lib/memory/indexes.js";
 import { writeAudit } from "../lib/audit.js";
 import { PRECISE_SNIPPETS } from "../lib/memory/precise.js";
+import { serverFileKey } from "../lib/servers.js";
+import { getContent, releaseContents } from "../lib/memory/file-store.js";
+import type { FileMeta } from "../lib/memory/store.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 
@@ -18,6 +21,7 @@ interface EntryPayload {
   output?: string;
   cwd?: string | null;
   by?: string | null;
+  file?: FileMeta;
 }
 
 export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
@@ -83,6 +87,10 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
             confidence: row.confidence,
             flags: JSON.parse(row.flags),
             ended: row.finished_at ? "exited" : "running",
+            // File changes: the list carries the summary only; the diff comes with the entry.
+            ...(row.kind === "file" && payload.file
+              ? { added: payload.file.added, removed: payload.file.removed, change: payload.file.change, note: payload.file.note }
+              : {}),
           });
         }
       } finally {
@@ -96,12 +104,13 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
       const { id } = req.params as { id: string };
       const row = app.skiffDb.raw.prepare(
         `SELECT me.id, me.kind, me.started_at, me.finished_at, me.exit_code, me.confidence, me.flags,
-                me.output_bytes, me.output_pruned, me.user_id, me.nonce, me.data, ms.key_id
+                me.output_bytes, me.output_pruned, me.user_id, me.nonce, me.data, ms.key_id,
+                me.content_old_id, me.content_new_id
            FROM memory_entries me
            JOIN memory_sessions ms ON ms.id = me.memory_session_id
           WHERE me.id = ?`,
       ).get(id) as any | undefined;
-      if (!row || row.kind !== "command") return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
+      if (!row || (row.kind !== "command" && row.kind !== "file")) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
       if (isTeam() && !req.sessionUser?.isAdmin && row.user_id !== req.sessionUser?.id) {
         return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
       }
@@ -116,8 +125,28 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
       } finally {
         keys.dispose();
       }
+      if (row.kind === "file" && payload.file) {
+        return reply.send(ok({
+          id: row.id,
+          kind: "file",
+          startedAt: row.started_at,
+          finishedAt: row.finished_at,
+          path: payload.command,
+          change: payload.file.change,
+          added: payload.file.added,
+          removed: payload.file.removed,
+          note: payload.file.note,
+          by: payload.file.by,
+          diff: payload.output ?? "",
+          diffPruned: !!row.output_pruned,
+          flags: JSON.parse(row.flags),
+          hasOld: !!row.content_old_id,
+          hasNew: !!row.content_new_id,
+        }));
+      }
       return reply.send(ok({
         id: row.id,
+        kind: "command",
         startedAt: row.started_at,
         finishedAt: row.finished_at,
         command: payload.command,
@@ -132,10 +161,37 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
       }));
     });
 
+    // One stored version of a file a file entry refers to (the full text, shown on request).
+    app.get("/api/memory/entries/:id/file", { preHandler: auth }, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { version } = req.query as { version?: string };
+      const notFound = () => reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
+      if (version !== "old" && version !== "new") return reply.code(400).send(err(ApiErrorCode.VALIDATION_FAILED, "version must be old or new"));
+      const db = app.skiffDb.raw;
+      const row = db.prepare(
+        "SELECT kind, user_id, server_id, content_old_id, content_new_id FROM memory_entries WHERE id = ?",
+      ).get(id) as { kind: string; user_id: string | null; server_id: string | null; content_old_id: string | null; content_new_id: string | null } | undefined;
+      if (!row || row.kind !== "file" || !row.server_id) return notFound();
+      if (isTeam() && !req.sessionUser?.isAdmin && row.user_id !== req.sessionUser?.id) return notFound();
+      const contentId = version === "old" ? row.content_old_id : row.content_new_id;
+      if (!contentId) return notFound();
+      let fileKey: Buffer | null = null;
+      try {
+        fileKey = serverFileKey(db, row.server_id, req.vaultKey);
+        const content = getContent(db, fileKey, contentId);
+        if (content === null) return notFound();
+        return reply.send(ok({ content }));
+      } catch {
+        return notFound();
+      } finally {
+        fileKey?.fill(0);
+      }
+    });
+
     app.get("/api/memory/search", { preHandler: auth }, async (req, reply) => {
-      const { q, hostId, hosts, user, failed, since, before, beforeId, output, browse, limit } = req.query as {
+      const { q, hostId, hosts, user, failed, since, before, beforeId, output, browse, limit, types } = req.query as {
         q?: string; hostId?: string; hosts?: string; user?: string; failed?: string; since?: string;
-        before?: string; beforeId?: string; output?: string; browse?: string; limit?: string;
+        before?: string; beforeId?: string; output?: string; browse?: string; limit?: string; types?: string;
       };
       const visibleUserId = isTeam() && !req.sessionUser?.isAdmin ? (req.sessionUser?.id ?? "") : null;
       const index = await indexes.forLogin(req.sessionId, req.vaultKey, visibleUserId);
@@ -150,6 +206,7 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
         before: before || undefined,
         beforeId: beforeId || undefined,
         includeOutput: output === "1",
+        kind: types === "commands" ? "command" : types === "files" ? "file" : undefined,
         browse: browse === "1",
         limit: parseInt(limit ?? "50", 10) || 50,
       });
@@ -173,15 +230,17 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
       const { id } = req.params as { id: string };
       const db = app.skiffDb.raw;
       const row = db.prepare(
-        `SELECT me.id, me.user_id, ms.host_id
+        `SELECT me.id, me.user_id, me.server_id, me.content_old_id, me.content_new_id, ms.host_id
            FROM memory_entries me JOIN memory_sessions ms ON ms.id = me.memory_session_id
           WHERE me.id = ?`,
-      ).get(id) as { id: string; user_id: string | null; host_id: string | null } | undefined;
+      ).get(id) as { id: string; user_id: string | null; server_id: string | null; content_old_id: string | null; content_new_id: string | null; host_id: string | null } | undefined;
       if (!row) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
       if (isTeam() && !req.sessionUser?.isAdmin && row.user_id !== req.sessionUser?.id) {
         return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
       }
       db.prepare("DELETE FROM memory_entries WHERE id = ?").run(id);
+      // File versions only this entry referred to go with it.
+      if (row.server_id) releaseContents(db, row.server_id, [row.content_old_id, row.content_new_id].filter((c): c is string => !!c));
       await indexes.forget(id);
       if (req.sessionUser) {
         writeAudit(db, {

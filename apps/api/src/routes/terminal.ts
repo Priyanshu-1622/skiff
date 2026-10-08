@@ -9,12 +9,14 @@ import { writeAudit } from "../lib/audit.js";
 import { SessionRecorder } from "../lib/recorder.js";
 import { generateId } from "../lib/id.js";
 import { hostKeyFingerprint, hostKeyType, legacyHostKeyId } from "../lib/host-key.js";
-import { linkServer } from "../lib/servers.js";
+import { linkServer, serverFileKey } from "../lib/servers.js";
 import { newDataKey, wrapDataKey } from "../crypto/data-keys.js";
 import { TermMirror } from "../lib/term-mirror.js";
 import { CaptureEngine } from "../lib/capture/engine.js";
 import { injectPrecise, type PreciseResult } from "../lib/memory/precise-inject.js";
-import { beginMemorySession, endMemorySession, saveCommandEntry, beginPauseEntry, endPauseEntry } from "../lib/memory/store.js";
+import { beginMemorySession, endMemorySession, saveCommandEntry, saveFileEntry, beginPauseEntry, endPauseEntry } from "../lib/memory/store.js";
+import { FileTracker } from "../lib/memory/file-tracker.js";
+import { SftpReader } from "../lib/memory/sftp-reader.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
@@ -491,6 +493,22 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
               keyId = null;
             }
           }
+          // File-change tracking seals file versions under the server's file key,
+          // so a later session can still read them. Unwrapped here, while the
+          // vault key is still current; this session keeps its own copy and
+          // zeroes it when the session ends (like the session data key).
+          let fileKey: Buffer | null = null;
+          let fileServerId: string | null = null;
+          let fileKeyAdopted = false;
+          if (dataKey && vaultKeyIsCurrent()) {
+            try {
+              const r = db.prepare("SELECT server_id FROM hosts WHERE id = ?").get(hostId) as { server_id: string | null } | undefined;
+              if (r?.server_id) {
+                fileKey = serverFileKey(db, r.server_id, vaultKey);
+                fileServerId = r.server_id;
+              }
+            } catch { fileKey?.fill(0); fileKey = null; fileServerId = null; }
+          }
           releaseVaultKey();
 
           const session = deps.sessionManager.register({
@@ -580,7 +598,29 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                 // key, silently producing an unreadable (and, worse,
                 // all-zero-key-readable) row instead of an encrypted one.
                 const memKey = Buffer.from(session.dataKey);
+                let fileTracker: FileTracker | null = null;
+                let sftpReader: SftpReader | null = null;
+                if (fileKey && fileServerId) {
+                  fileKeyAdopted = true; // zeroed with the memory session below
+                  sftpReader = new SftpReader(ssh);
+                  fileTracker = new FileTracker({
+                    db, fileKey, serverId: fileServerId, reader: sftpReader,
+                    save: (f) => {
+                      try {
+                        saveFileEntry(db, memKey, {
+                          memorySessionId: memSessionId,
+                          serverId: fileServerId,
+                          userId: entry.user?.id ?? null,
+                          path: f.path, diff: f.diff,
+                          meta: { change: f.change, added: f.added, removed: f.removed, note: f.note, by: f.command },
+                          flags: f.flags, oldContentId: f.oldContentId, newContentId: f.newContentId, startedAt: f.startedAt,
+                        });
+                      } catch { /* tracking must never break the session */ }
+                    },
+                  });
+                }
                 const captureEngine = new CaptureEngine(captureMirror, {
+                  onCommandStart: (info) => { fileTracker?.onStart(info); },
                   onCommand: (event) => {
                     try {
                       saveCommandEntry(db, memKey, {
@@ -590,6 +630,9 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                         event,
                       });
                     } catch { /* capture must never break the session */ }
+                    // After the command entry is saved; fire and forget — SFTP is
+                    // slow-able and must never hold up the capture queue.
+                    void fileTracker?.onFinish({ command: event.command, startedAt: event.startedAt, ended: event.ended, exitCode: event.exitCode }).catch(() => {});
                   },
                 });
 
@@ -646,6 +689,9 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                     .catch(() => {})
                     .then(() => {
                       try { endMemorySession(db, memSessionId); } catch { /* best-effort */ }
+                      fileTracker?.dispose();
+                      sftpReader?.close();
+                      fileKey?.fill(0);
                       memKey.fill(0);
                       captureMirror.dispose();
                     });
@@ -700,6 +746,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
               } catch { /* memory capture must never break the session or its recording */ }
             }
           }
+          if (!fileKeyAdopted) fileKey?.fill(0); // memory off / capture not started: don't keep the key
 
           // If the browser already went away while we were connecting, the
           // detach handler ran before this session existed — so it never

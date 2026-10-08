@@ -172,12 +172,25 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         wrapped_key: Buffer.from(k.wrapped_key).toString("base64"),
         nonce: Buffer.from(k.nonce).toString("base64"),
       }));
+      // Watched files and their stored versions (sealed under each server's file
+      // key, which is in `servers` above): kept so a restored vault still knows
+      // what each file last looked like.
+      const serverFiles = (db.prepare("SELECT * FROM server_files").all() as any[]).map((f) => ({
+        ...f,
+        path_nonce: Buffer.from(f.path_nonce).toString("base64"),
+        path_data: Buffer.from(f.path_data).toString("base64"),
+      }));
+      const fileContents = (db.prepare("SELECT * FROM file_contents").all() as any[]).map((f) => ({
+        ...f,
+        nonce: Buffer.from(f.nonce).toString("base64"),
+        data: Buffer.from(f.data).toString("base64"),
+      }));
       return ok({
         version: 2,
         exportedAt: new Date().toISOString(),
         vaultMeta: normalizedMeta,
         users,
-        servers, sessionKeys,
+        servers, sessionKeys, serverFiles, fileContents,
         folders, hosts,
         credentials: credentials.map((c: any) => ({
           ...c,
@@ -325,6 +338,20 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           nonce: b64,
           created_at: z.string().optional(),
         })).default([]),
+        serverFiles: z.array(z.object({
+          server_id: z.string().min(1),
+          path_hash: z.string().min(1),
+          path_nonce: b64,
+          path_data: b64,
+          last_content_id: z.string().nullable().optional(),
+          updated_at: z.string().optional(),
+        })).default([]),
+        fileContents: z.array(z.object({
+          id: z.string().min(1),
+          server_id: z.string().min(1),
+          nonce: b64,
+          data: b64,
+        })).default([]),
         folders: z.array(z.any()).default([]),
         hosts: z.array(z.any()).default([]),
         credentials: z.array(z.any()).default([]),
@@ -392,6 +419,14 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
             s.previous_server_id ?? null,
             Buffer.from(s.file_key_wrapped, "base64"), Buffer.from(s.file_key_nonce, "base64"),
           );
+        }
+        for (const f of body.fileContents) {
+          db.prepare("INSERT INTO file_contents (id, server_id, nonce, data) VALUES (?, ?, ?, ?)")
+            .run(f.id, f.server_id, Buffer.from(f.nonce, "base64"), Buffer.from(f.data, "base64"));
+        }
+        for (const f of body.serverFiles) {
+          db.prepare("INSERT INTO server_files (server_id, path_hash, path_nonce, path_data, last_content_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .run(f.server_id, f.path_hash, Buffer.from(f.path_nonce, "base64"), Buffer.from(f.path_data, "base64"), f.last_content_id ?? null, f.updated_at ?? new Date().toISOString());
         }
         for (const k of body.sessionKeys) {
           db.prepare("INSERT INTO session_keys (id, wrapped_key, nonce, created_at) VALUES (?, ?, ?, ?)")

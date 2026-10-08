@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { SessionStore } from "../../crypto/session-store.js";
 import { openEntry } from "../../crypto/data-keys.js";
 import { MemoryIndex } from "./index.js";
+import type { FileMeta } from "./store.js";
 import { makeKeyCache } from "./keys.js";
 
 const BATCH_ROWS = 200;
@@ -60,10 +61,10 @@ export class MemoryIndexes {
         if (rows.length === 0) return;
         const before = index.watermark;
         for (const row of rows) {
-          if (row.kind !== "command") { index.skip(row.rid); continue; } // pause rows etc. are not searchable
+          if (row.kind !== "command" && row.kind !== "file") { index.skip(row.rid); continue; } // pause rows etc. are not searchable
           const key = keys.get(row.key_id);
           if (!key) { index.skip(row.rid); continue; }
-          let payload: { command: string; output: string; cwd: string | null };
+          let payload: { command: string; output: string; cwd: string | null; file?: FileMeta };
           try {
             payload = JSON.parse(openEntry(key, `memory-entry:${row.id}`, row.nonce, row.data).toString("utf8"));
           } catch {
@@ -76,6 +77,7 @@ export class MemoryIndexes {
             ended: row.finished_at ? "exited" : "running",
             command: payload.command, cwd: payload.cwd ?? "", output: payload.output ?? "",
             userId: row.uid ?? null, username: row.username ?? null,
+            kind: row.kind, file: payload.file ?? null,
           });
         }
         // Every row advances the watermark (added or skipped); if none did, re-selecting would loop forever.

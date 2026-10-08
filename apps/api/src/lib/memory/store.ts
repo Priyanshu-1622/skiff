@@ -21,10 +21,22 @@ export function endMemorySession(db: Database.Database, memorySessionId: string)
     .run(new Date().toISOString(), JSON.stringify({ commands: c }), memorySessionId);
 }
 
-interface EntryPayload {
+export interface FileMeta {
+  change: "created" | "modified" | "deleted";
+  added: number;
+  removed: number;
+  note: string | null;
+  /** The command that made the change (already redacted). */
+  by: string;
+}
+
+export interface EntryPayload {
+  /** For file entries this is the file's path. */
   command: string;
+  /** For file entries this is the (redacted) diff, so search and retention treat it like output. */
   output: string;
   cwd: string | null;
+  file?: FileMeta;
 }
 
 export function saveCommandEntry(
@@ -47,6 +59,30 @@ export function saveCommandEntry(
     startedAt, finishedAt, event.exitCode, event.confidence, JSON.stringify(event.flags),
     event.outputBytes, event.outputPruned ? 1 : 0, nonce, data,
   );
+}
+
+export function saveFileEntry(
+  db: Database.Database,
+  dataKey: Buffer,
+  opts: {
+    memorySessionId: string; serverId: string | null; userId: string | null;
+    path: string; diff: string; meta: FileMeta; flags: string[];
+    oldContentId: string | null; newContentId: string | null; startedAt: number;
+  },
+): string {
+  const id = generateId("mentry");
+  const payload: EntryPayload = { command: opts.path, output: opts.diff, cwd: null, file: opts.meta };
+  const { nonce, data } = sealEntry(dataKey, `memory-entry:${id}`, Buffer.from(JSON.stringify(payload), "utf8"));
+  db.prepare(
+    `INSERT INTO memory_entries
+       (id, memory_session_id, server_id, user_id, kind, started_at, finished_at, exit_code, confidence, flags, output_bytes, output_pruned, nonce, data, content_old_id, content_new_id)
+     VALUES (?, ?, ?, ?, 'file', ?, ?, NULL, NULL, ?, ?, 0, ?, ?, ?, ?)`,
+  ).run(
+    id, opts.memorySessionId, opts.serverId, opts.userId,
+    new Date(opts.startedAt).toISOString(), new Date().toISOString(), JSON.stringify(opts.flags),
+    Buffer.byteLength(opts.diff, "utf8"), nonce, data, opts.oldContentId, opts.newContentId,
+  );
+  return id;
 }
 
 export function beginPauseEntry(

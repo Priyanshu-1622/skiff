@@ -460,3 +460,64 @@ test("pause and resume are idempotent and isPaused reflects the state", async ()
   assert.equal(engine.isPaused, false);
   mirror.dispose();
 });
+
+test("onCommandStart: fires once per command, with the typed text, before the command is saved (screen mode)", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const log: string[] = [];
+  const engine = new CaptureEngine(mirror, {
+    onCommandStart: (info) => log.push(`start:${info.command}:${info.cwd}`),
+    onCommand: (e) => log.push(`done:${e.command}`),
+  });
+  await engine.onOutput("$ ");
+  typeAndEnter(engine, "vim /etc/hosts");
+  await engine.onOutput("vim /etc/hosts\r\n"); // running, prompt not back yet
+  assert.deepEqual(log, ["start:vim /etc/hosts:null"], "announced while still running");
+  await engine.onOutput("$ ");
+  assert.deepEqual(log, ["start:vim /etc/hosts:null", "done:vim /etc/hosts"]);
+  mirror.dispose();
+});
+
+test("onCommandStart: marker mode reports the working directory", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const starts: Array<{ command: string; cwd: string | null }> = [];
+  const order: string[] = [];
+  const engine = new CaptureEngine(mirror, {
+    onCommandStart: (info) => { starts.push(info); order.push("start"); },
+    onCommand: () => order.push("done"),
+  });
+  await engine.onOutput(BASH_MARKER.preamble);
+  for (const seg of BASH_MARKER.segments) {
+    typeAndEnter(engine, seg.command);
+    await engine.onOutput(seg.echoAndOutput);
+  }
+  assert.deepEqual(starts.map((s) => s.command), ["whoami", "false", "echo done"]);
+  assert.ok(starts.every((s) => s.cwd === "/d/Skiff/skiff webapp updates"), JSON.stringify(starts));
+  assert.deepEqual(order, ["start", "done", "start", "done", "start", "done"]);
+  mirror.dispose();
+});
+
+test("onCommandStart: not fired for commands begun while paused, or for an empty line", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const starts: string[] = [];
+  const engine = new CaptureEngine(mirror, { onCommandStart: (info) => starts.push(info.command) });
+  await engine.onOutput("$ ");
+  engine.pause();
+  await runCmd(engine, "secret-edit /etc/shadow");
+  await engine.resume();
+  await engine.onInput("a");
+  await engine.onInput("\x7f");
+  await engine.onInput("\n");
+  await engine.onOutput("\r\n$ ");
+  await runCmd(engine, "pwd");
+  assert.deepEqual(starts, ["pwd"]);
+  mirror.dispose();
+});
+
+test("onCommandStart: a callback that throws never breaks capture", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror, { onCommandStart: () => { throw new Error("boom"); } });
+  await engine.onOutput("$ ");
+  await runCmd(engine, "whoami", "fakeuser\r\n");
+  assert.deepEqual(engine.events.map((e) => e.command), ["whoami"]);
+  mirror.dispose();
+});

@@ -18,6 +18,13 @@ export interface CommandEvent {
 
 export interface CaptureEngineOptions {
   onCommand?: (event: CommandEvent) => void;
+  /**
+   * Called when a command begins running, with the command exactly as typed
+   * (the stored copy is redacted later; this one is for work that needs the
+   * real text, such as finding the files an edit will touch). Not called for
+   * commands that begin during a pause. Must not throw or block.
+   */
+  onCommandStart?: (info: { command: string; cwd: string | null }) => void;
 }
 
 const MAX_HEAD_TAIL_BYTES = 32 * 1024;
@@ -138,6 +145,7 @@ export class CaptureEngine {
   private readonly inputDecoder = new StringDecoder("utf8");
   private readonly outputDecoder = new StringDecoder("utf8");
   private readonly onCommand?: (event: CommandEvent) => void;
+  private readonly onCommandStart?: (info: { command: string; cwd: string | null }) => void;
   private phase: Phase = { name: "idle" };
   private cwd: string | null = null;
   private sawCommandMarkers = false;
@@ -149,6 +157,12 @@ export class CaptureEngine {
 
   constructor(private readonly mirror: TermMirror, opts: CaptureEngineOptions = {}) {
     this.onCommand = opts.onCommand;
+    this.onCommandStart = opts.onCommandStart;
+  }
+
+  private announceStart(command: string): void {
+    if (this.paused || !this.onCommandStart) return;
+    try { this.onCommandStart({ command, cwd: this.cwd }); } catch { /* a start hook must never break capture */ }
   }
 
   /** Set once the queued backlog exceeded MAX_QUEUED_BYTES — capture is off for the rest of this session (spec §11). */
@@ -373,6 +387,7 @@ export class CaptureEngine {
           startedAt: Date.now(),
           suppressed: this.paused,
         };
+        this.announceStart(command);
         break;
       }
       case "command_finished": {
@@ -407,6 +422,7 @@ export class CaptureEngine {
       startedAt: Date.now(),
       suppressed: this.paused,
     };
+    this.announceStart(command);
   }
 
   private finishScreenCommand(): void {

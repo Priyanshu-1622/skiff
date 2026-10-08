@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import type { FileMeta } from "./store.js";
 
 export const OUTPUT_INDEX_CAP_CHARS = 8192;
 const MAX_QUERY_TERMS = 12;
@@ -9,11 +10,14 @@ export interface IndexDoc {
   exitCode: number | null; confidence: string | null; flags: string[]; ended: "exited" | "running";
   command: string; cwd: string; output: string;
   userId: string | null; username: string | null;
+  /** Defaults to a command. A file entry's `command` is its path and `output` its redacted diff. */
+  kind?: "command" | "file"; file?: FileMeta | null;
 }
 export interface IndexHit {
   id: string; hostId: string | null; startedAt: string; finishedAt: string | null; command: string; cwd: string | null;
   exitCode: number | null; confidence: string | null; flags: string[]; ended: "exited" | "running";
   userId: string | null; username: string | null;
+  kind: "command" | "file"; file: FileMeta | null;
 }
 export interface SearchOptions {
   hostId?: string;
@@ -26,6 +30,8 @@ export interface SearchOptions {
   before?: string;
   beforeId?: string;
   includeOutput?: boolean;
+  /** Only commands or only file changes; omitted = both. */
+  kind?: "command" | "file";
   /** An empty query lists everything matching the filters, newest first. */
   browse?: boolean;
   limit?: number;
@@ -60,7 +66,7 @@ export class MemoryIndex {
       CREATE TABLE meta (
         rowid INTEGER PRIMARY KEY, id TEXT NOT NULL, host_id TEXT, started_at TEXT NOT NULL, finished_at TEXT,
         exit_code INTEGER, confidence TEXT, flags TEXT NOT NULL, ended TEXT NOT NULL,
-        user_id TEXT, username TEXT
+        user_id TEXT, username TEXT, kind TEXT NOT NULL DEFAULT 'command', file TEXT
       );
       CREATE INDEX meta_started ON meta(started_at);
     `);
@@ -72,8 +78,9 @@ export class MemoryIndex {
 
   add(d: IndexDoc): void {
     this.db.prepare("INSERT INTO fts(rowid, command, cwd, output) VALUES (?, ?, ?, ?)").run(d.rowid, d.command, d.cwd, capOutput(d.output));
-    this.db.prepare("INSERT INTO meta VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+    this.db.prepare("INSERT INTO meta VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
       d.rowid, d.id, d.hostId, d.startedAt, d.finishedAt, d.exitCode, d.confidence, JSON.stringify(d.flags), d.ended, d.userId, d.username,
+      d.kind ?? "command", d.file ? JSON.stringify(d.file) : null,
     );
     this.skip(d.rowid);
   }
@@ -108,6 +115,7 @@ export class MemoryIndex {
       else { where.push(`m.host_id IN (${ids.map(() => "?").join(",")})`); params.push(...ids); }
     }
     if (opts.userId) { where.push("m.user_id = ?"); params.push(opts.userId); }
+    if (opts.kind) { where.push("m.kind = ?"); params.push(opts.kind); }
     if (opts.failedOnly) where.push("m.exit_code IS NOT NULL AND m.exit_code != 0");
     if (opts.since) { where.push("m.started_at >= ?"); params.push(opts.since); }
     if (opts.before) {
@@ -121,7 +129,7 @@ export class MemoryIndex {
     }
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
     const rows = this.db.prepare(
-      `SELECT m.id, m.host_id, m.started_at, m.finished_at, m.exit_code, m.confidence, m.flags, m.ended, m.user_id, m.username, fts.command, fts.cwd
+      `SELECT m.id, m.host_id, m.started_at, m.finished_at, m.exit_code, m.confidence, m.flags, m.ended, m.user_id, m.username, m.kind, m.file, fts.command, fts.cwd
          FROM fts JOIN meta m ON m.rowid = fts.rowid
         ${where.length ? "WHERE " + where.join(" AND ") : ""}
         ORDER BY m.started_at DESC, m.id DESC LIMIT ?`,
@@ -130,6 +138,7 @@ export class MemoryIndex {
       id: r.id, hostId: r.host_id, startedAt: r.started_at, finishedAt: r.finished_at, command: r.command,
       cwd: r.cwd || null, exitCode: r.exit_code, confidence: r.confidence, flags: JSON.parse(r.flags), ended: r.ended,
       userId: r.user_id, username: r.username,
+      kind: r.kind, file: r.file ? JSON.parse(r.file) : null,
     }));
   }
 

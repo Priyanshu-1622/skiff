@@ -133,6 +133,13 @@ export function runColumnMigrations(db: Database.Database): void {
   if (!hasColumn("vault_meta", "memory_last_retention_at")) {
     db.exec("ALTER TABLE vault_meta ADD COLUMN memory_last_retention_at TEXT");
   }
+  // Phase C: a file entry points at its stored old/new versions (content ids are HMACs, not secrets).
+  if (!hasColumn("memory_entries", "content_old_id")) {
+    db.exec("ALTER TABLE memory_entries ADD COLUMN content_old_id TEXT");
+  }
+  if (!hasColumn("memory_entries", "content_new_id")) {
+    db.exec("ALTER TABLE memory_entries ADD COLUMN content_new_id TEXT");
+  }
   // First-connect notice: seen once per vault (personal) or per user (team).
   if (!hasColumn("vault_meta", "memory_notice_seen")) {
     db.exec("ALTER TABLE vault_meta ADD COLUMN memory_notice_seen INTEGER NOT NULL DEFAULT 0");
