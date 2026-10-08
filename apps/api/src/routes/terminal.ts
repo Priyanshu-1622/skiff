@@ -13,6 +13,7 @@ import { linkServer } from "../lib/servers.js";
 import { newDataKey, wrapDataKey } from "../crypto/data-keys.js";
 import { TermMirror } from "../lib/term-mirror.js";
 import { CaptureEngine } from "../lib/capture/engine.js";
+import { injectPrecise, type PreciseResult } from "../lib/memory/precise-inject.js";
 import { beginMemorySession, endMemorySession, saveCommandEntry, beginPauseEntry, endPauseEntry } from "../lib/memory/store.js";
 import { ApiErrorCode } from "@skiff/shared";
 
@@ -21,9 +22,23 @@ export interface TerminalRouteDeps {
   sessionManager: SessionManager;
   dataDir: string;
   config: Pick<Config, "nodeEnv" | "trustedOrigins" | "maxSessionsPerUser">;
+  preciseTimings?: { quietMs?: number; maxWaitMs?: number; gateMs?: number };
 }
 
 const FINGERPRINT_TIMEOUT_MS = 60_000;
+
+/** What to tell the user when Precise mode did not switch on (null = nothing worth saying). */
+function preciseNote(result: PreciseResult): string | null {
+  if (result.status === "injected") return null;
+  if (result.status === "failed") return "Precise mode couldn't be set up in this shell, so commands are remembered the usual way.";
+  switch (result.reason) {
+    case "unknown-shell": return "Precise mode skipped: it works with bash, zsh and fish, and this server uses something else.";
+    case "no-shell-info": return "Precise mode skipped: couldn't tell which shell this server uses.";
+    case "user-typing": return "Precise mode skipped: you started typing before it could set up.";
+    case "not-idle": return "Precise mode skipped: the shell was still busy starting up.";
+    default: return null; // markers-already (nothing to do) and no-output
+  }
+}
 
 /** Sent when a browser is detached because its login was locked or expired. */
 const VAULT_LOCKED_REASON = "Vault locked — your session is still running. Unlock to reattach.";
@@ -635,6 +650,53 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                       captureMirror.dispose();
                     });
                 };
+
+                // Precise mode (opt-in per host): switch the shell to OSC 133 markers
+                // so capture gets exact commands and exit codes. Runs in the
+                // background; it never blocks or breaks the session.
+                const preciseRow = db.prepare("SELECT precise_mode FROM hosts WHERE id = ?").get(hostId) as
+                  | { precise_mode: number } | undefined;
+                if (preciseRow?.precise_mode) {
+                  let lastOutputAt = 0;
+                  let inputSeen = false;
+                  let markersSeen = false;
+                  const outBefore = session.onOutput;
+                  session.onOutput = (chunk) => {
+                    lastOutputAt = Date.now();
+                    if (!markersSeen && chunk.includes("\x1b]133;")) markersSeen = true;
+                    if (outBefore) outBefore(chunk);
+                  };
+                  const inBefore = session.onInput;
+                  session.onInput = (chunk) => {
+                    inputSeen = true;
+                    if (inBefore) inBefore(chunk);
+                  };
+                  const execOnce = (command: string, timeoutMs: number) => new Promise<string | null>((resolve) => {
+                    let finished = false;
+                    const finish = (value: string | null) => { if (!finished) { finished = true; clearTimeout(timer); resolve(value); } };
+                    const timer = setTimeout(() => finish(null), timeoutMs);
+                    try {
+                      ssh.exec(command, (err, execStream) => {
+                        if (err) return finish(null);
+                        let out = "";
+                        execStream.on("data", (d: Buffer) => { out += d.toString(); });
+                        execStream.on("close", () => finish(out));
+                        execStream.on("error", () => finish(null));
+                      });
+                    } catch { finish(null); }
+                  });
+                  void injectPrecise({
+                    exec: execOnce,
+                    armGate: (marker, o) => deps.sessionManager.armOutputGate(managedId, marker, o),
+                    writeSystem: (data) => deps.sessionManager.writeSystem(managedId, data),
+                    activity: { lastOutputAt: () => lastOutputAt, inputSeen: () => inputSeen, markersSeen: () => markersSeen },
+                  }, deps.preciseTimings)
+                    .then((result) => {
+                      const note = preciseNote(result);
+                      if (note && socket.readyState === 1) socket.send(JSON.stringify({ type: "memory_note", message: note }));
+                    })
+                    .catch(() => { /* Precise mode is best-effort */ });
+                }
               } catch { /* memory capture must never break the session or its recording */ }
             }
           }

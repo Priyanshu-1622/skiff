@@ -120,6 +120,10 @@ export function runColumnMigrations(db: Database.Database): void {
   if (!hasColumn("hosts", "memory_mode")) {
     db.exec("ALTER TABLE hosts ADD COLUMN memory_mode TEXT NOT NULL DEFAULT 'on'");
   }
+  // Precise mode: opt-in per host (types one line into the shell so it reports exact commands and exit codes).
+  if (!hasColumn("hosts", "precise_mode")) {
+    db.exec("ALTER TABLE hosts ADD COLUMN precise_mode INTEGER NOT NULL DEFAULT 0");
+  }
   if (!hasColumn("vault_meta", "memory_enabled")) {
     db.exec("ALTER TABLE vault_meta ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1");
   }

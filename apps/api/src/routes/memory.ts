@@ -5,6 +5,7 @@ import { openEntry } from "../crypto/data-keys.js";
 import { makeKeyCache } from "../lib/memory/keys.js";
 import { MemoryIndexes } from "../lib/memory/indexes.js";
 import { writeAudit } from "../lib/audit.js";
+import { PRECISE_SNIPPETS } from "../lib/memory/precise.js";
 import { ok, err } from "../lib/response.js";
 import { ApiErrorCode } from "@skiff/shared";
 
@@ -154,6 +155,9 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
       });
       return reply.send(ok({ entries }));
     });
+
+    // The exact lines Precise mode types into a shell, so the UI can show them.
+    app.get("/api/memory/precise-snippets", { preHandler: auth }, async (_req, reply) => reply.send(ok(PRECISE_SNIPPETS)));
 
     app.post("/api/memory/notice-seen", { preHandler: auth }, async (req, reply) => {
       const db = app.skiffDb.raw;

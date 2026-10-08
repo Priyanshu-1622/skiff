@@ -42,6 +42,8 @@ export interface BuildAppOptions {
   config: Config;
   /** Optionally inject a pre-opened db (used in tests with :memory:). */
   db?: SkiffDb;
+  /** Test hook: shorten Precise mode's waits (quiet period, overall wait, hide window). */
+  preciseTimings?: { quietMs?: number; maxWaitMs?: number; gateMs?: number };
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -234,7 +236,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(authRoutes({ sessionStore, config, setupGate, attemptLimiter }));
   await app.register(teamRoutes({ sessionStore, sessionManager, config, attemptLimiter }));
   await app.register(hostRoutes({ sessionStore }));
-  await app.register(terminalRoutes({ sessionStore, sessionManager, dataDir: config.dataDir, config }));
+  await app.register(terminalRoutes({ sessionStore, sessionManager, dataDir: config.dataDir, config, preciseTimings: opts.preciseTimings }));
   await app.register(importRoutes({ sessionStore }));
   await app.register(settingsRoutes({ sessionStore, sessionManager, config, setupGate }));
   await app.register(recordingsRoutes({ sessionStore, sessionManager, dataDir: config.dataDir }));

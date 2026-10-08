@@ -248,3 +248,60 @@ test("capture follows the host switch: nothing is remembered while it is off, an
     assert.deepEqual(await timeline(), ["pwd", "whoami"]);
   } finally { await app.close(); sshd.close(); }
 });
+
+test("preciseMode can be switched on and off, alone or with memoryMode, and each field leaves the other alone", async () => {
+  const { app, cookie } = await personalApp();
+  try {
+    const id = await newHost(app, cookie);
+    assert.equal((await getHost(app, cookie, id)).precise_mode, 0, "off by default");
+    const on = await putHostMemory(app, cookie, id, { preciseMode: true });
+    assert.equal(on.statusCode, 200);
+    assert.deepEqual((on.json() as any).data, { id, memoryMode: "on", preciseMode: true });
+    assert.equal((await getHost(app, cookie, id)).precise_mode, 1);
+    await putHostMemory(app, cookie, id, { memoryMode: "off" });
+    const afterMemory = await getHost(app, cookie, id);
+    assert.equal(afterMemory.memory_mode, "off");
+    assert.equal(afterMemory.precise_mode, 1, "changing memoryMode did not touch preciseMode");
+    await putHostMemory(app, cookie, id, { memoryMode: "on", preciseMode: false });
+    const both = await getHost(app, cookie, id);
+    assert.equal(both.memory_mode, "on");
+    assert.equal(both.precise_mode, 0);
+  } finally { await app.close(); }
+});
+
+test("a host memory update with no recognised field, or a wrong type, is a 400", async () => {
+  const { app, cookie } = await personalApp();
+  try {
+    const id = await newHost(app, cookie);
+    for (const body of [{}, { preciseMode: "yes" }, { preciseMode: 1 }, { memoryMode: "on", preciseMode: "no" }, { other: true }]) {
+      assert.equal((await putHostMemory(app, cookie, id, body)).statusCode, 400, JSON.stringify(body));
+    }
+    assert.equal((await getHost(app, cookie, id)).precise_mode, 0);
+  } finally { await app.close(); }
+});
+
+test("team mode: a member cannot enable precise mode, an admin can, and the audit row names only what was set", async () => {
+  const { app, db, adminCookie, login } = await teamApp();
+  try {
+    const bob = await login("bob");
+    const id = await newHost(app, adminCookie);
+    assert.equal((await putHostMemory(app, bob, id, { preciseMode: true })).statusCode, 403);
+    assert.equal((await getHost(app, adminCookie, id)).precise_mode, 0);
+    assert.equal((await putHostMemory(app, adminCookie, id, { preciseMode: true })).statusCode, 200);
+    const audit = db.raw.prepare("SELECT detail FROM audit_log WHERE action = 'host.memory'").all() as any[];
+    assert.equal(audit.length, 1);
+    assert.deepEqual(JSON.parse(audit[0].detail), { preciseMode: true });
+  } finally { await app.close(); }
+});
+
+test("the exact lines precise mode types are available to the UI, to logged-in users only", async () => {
+  const { app, cookie } = await personalApp();
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/memory/precise-snippets", headers: { cookie } });
+    assert.equal(res.statusCode, 200);
+    const snippets = (res.json() as any).data;
+    assert.deepEqual(Object.keys(snippets).sort(), ["bash", "fish", "zsh"]);
+    assert.ok(snippets.bash.includes("133;"), "the real text, not a placeholder");
+    assert.equal((await app.inject({ method: "GET", url: "/api/memory/precise-snippets" })).statusCode, 401);
+  } finally { await app.close(); }
+});

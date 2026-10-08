@@ -1,6 +1,7 @@
 import type { Client as SSH2Client } from "ssh2";
 import type { SessionUser } from "../crypto/session-store.js";
 import { TermMirror } from "./term-mirror.js";
+import { OutputGate, type GateResult } from "./output-gate.js";
 
 /**
  * Server-side terminal session manager.
@@ -62,6 +63,8 @@ export interface ManagedSession {
   onResize: ((rows: number, cols: number) => void) | null;
   /** Called once when the session ends, for cleanup (e.g. finalize recording). */
   onEnd: (() => void) | null;
+  /** While set, output is held back until it releases it (Precise mode hides the line it types). */
+  outputGate: OutputGate | null;
   closed: boolean;
 }
 
@@ -157,17 +160,19 @@ export class SessionManager {
       onInput: null,
       onResize: null,
       onEnd: null,
+      outputGate: null,
       closed: false,
     };
     this.sessions.set(opts.id, session);
 
     const handleOutput = (data: Buffer) => {
-      // Feed the recorder first so nothing is lost if a send throws.
-      if (session.onOutput) {
-        try { session.onOutput(data); } catch { /* recording must never break the session */ }
+      if (session.outputGate) {
+        const passed = session.outputGate.push(data);
+        if (!session.outputGate.active) session.outputGate = null;
+        if (passed.length === 0) return;
+        data = passed;
       }
-      const seq = session.mirror.write(data);
-      this.deliver(session, data, seq);
+      this.processOutput(session, data);
     };
 
     opts.stream.on("data", handleOutput);
@@ -184,6 +189,53 @@ export class SessionManager {
     this.startReap(session);
 
     return session;
+  }
+
+  /** Recorder, server-side screen, then the attached client — in that order. */
+  private processOutput(session: ManagedSession, data: Buffer): void {
+    // Feed the recorder first so nothing is lost if a send throws.
+    if (session.onOutput) {
+      try { session.onOutput(data); } catch { /* recording must never break the session */ }
+    }
+    const seq = session.mirror.write(data);
+    this.deliver(session, data, seq);
+  }
+
+  /**
+   * Hold the session's output until `marker` appears (then continue from the
+   * marker, preceded by `prefix`), or until `timeoutMs` passes (then release
+   * exactly what was held). Resolves why it stopped; "gone" if the session
+   * doesn't exist, ends meanwhile, or already has a gate. Arm it BEFORE
+   * writing whatever should be hidden.
+   */
+  armOutputGate(
+    id: string,
+    marker: Buffer,
+    opts: { prefix: Buffer; timeoutMs: number; maxHeldBytes?: number },
+  ): Promise<GateResult> {
+    const session = this.sessions.get(id);
+    if (!session || session.closed || session.outputGate) return Promise.resolve("gone");
+    return new Promise<GateResult>((resolve) => {
+      let timer: NodeJS.Timeout | null = null;
+      const gate = new OutputGate(marker, opts.prefix, opts.maxHeldBytes ?? 64 * 1024, (result) => {
+        if (timer) clearTimeout(timer);
+        resolve(result);
+      });
+      session.outputGate = gate;
+      timer = setTimeout(() => {
+        if (session.outputGate !== gate) return;
+        const flushed = gate.timeout();
+        session.outputGate = null;
+        if (flushed.length > 0 && !session.closed) this.processOutput(session, flushed);
+      }, opts.timeoutMs);
+    });
+  }
+
+  /** Write straight to the stream, bypassing the input hook (so Memory capture never sees it as typing). */
+  writeSystem(id: string, data: Buffer): boolean {
+    const session = this.sessions.get(id);
+    if (!session || session.closed) return false;
+    try { session.stream.write(data); return true; } catch { return false; }
   }
 
   /** Send output to the attached client, or hold it while one is being attached. */
@@ -369,6 +421,10 @@ export class SessionManager {
     if (session.reapTimer) {
       clearTimeout(session.reapTimer);
       session.reapTimer = null;
+    }
+    if (session.outputGate) {
+      session.outputGate.abort();
+      session.outputGate = null;
     }
     if (session.onEnd) {
       try { session.onEnd(); } catch { /* recording finalize failure must not throw here */ }

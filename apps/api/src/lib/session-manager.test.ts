@@ -357,3 +357,67 @@ test("a window that goes away mid-reattach doesn't receive output later", async 
   stream.emit("data", Buffer.from("later"));
   assert.deepEqual(received, []);
 });
+
+// ── output gate (precise mode hides the line it types) ─────────────────────
+
+const GATE_MARKER = Buffer.from("\x1b]133;A");
+const GATE_PREFIX = Buffer.from("\r\x1b[2K");
+
+test("a gate hides the injected echo from the client, the recorder and the mirror, then lets everything through", async () => {
+  const mgr = new SessionManager();
+  const { stream, session } = register(mgr);
+  const recorded: Buffer[] = [];
+  session.onOutput = (c) => recorded.push(c);
+  const got: Buffer[] = [];
+  await mgr.attach("s1:h1", { send: (c) => got.push(c), end: () => {} });
+
+  const pending = mgr.armOutputGate("s1:h1", GATE_MARKER, { prefix: GATE_PREFIX, timeoutMs: 2000 });
+  stream.emit("data", Buffer.from(" __skiff_x\r\n"));
+  stream.emit("data", Buffer.from("\x1b]133;D;0\x07\x1b]133;A\x07$ "));
+  assert.equal(await pending, "marker");
+  stream.emit("data", Buffer.from("ls\r\n"));
+
+  const shown = Buffer.concat(got).toString();
+  assert.equal(shown, "\r\x1b[2K\x1b]133;A\x07$ ls\r\n");
+  assert.equal(Buffer.concat(recorded).toString(), shown, "the recorder saw exactly what the screen saw");
+  const snapshot = (await mgr.attach("s1:h1", { send: () => {}, end: () => {} }))!.toString();
+  assert.ok(!snapshot.includes("__skiff_x"), "the server-side screen never held the echo");
+  assert.ok(snapshot.includes("$ ls"));
+});
+
+test("a gate that times out releases the held output to everyone, in order", async () => {
+  const mgr = new SessionManager();
+  const { stream, session } = register(mgr);
+  const recorded: Buffer[] = [];
+  session.onOutput = (c) => recorded.push(c);
+  const got: Buffer[] = [];
+  await mgr.attach("s1:h1", { send: (c) => got.push(c), end: () => {} });
+
+  const pending = mgr.armOutputGate("s1:h1", GATE_MARKER, { prefix: GATE_PREFIX, timeoutMs: 30 });
+  stream.emit("data", Buffer.from(" __skiff_x\r\n"));
+  stream.emit("data", Buffer.from("bash: syntax error\r\n"));
+  assert.equal(await pending, "timeout");
+  assert.equal(Buffer.concat(got).toString(), " __skiff_x\r\nbash: syntax error\r\n");
+  assert.equal(Buffer.concat(recorded).toString(), " __skiff_x\r\nbash: syntax error\r\n");
+});
+
+test("writeSystem writes straight to the stream without going through the input hook", async () => {
+  const mgr = new SessionManager();
+  const { stream, session } = register(mgr);
+  let inputs = 0;
+  session.onInput = () => { inputs++; };
+  assert.equal(mgr.writeSystem("s1:h1", Buffer.from(" hello\n")), true);
+  assert.equal(Buffer.concat(stream.written).toString(), " hello\n");
+  assert.equal(inputs, 0);
+  assert.equal(mgr.writeSystem("nope", Buffer.from("x")), false);
+});
+
+test("arming a gate for an unknown session, a second gate, or a session that ends meanwhile resolves 'gone'", async () => {
+  const mgr = new SessionManager();
+  register(mgr);
+  assert.equal(await mgr.armOutputGate("nope", GATE_MARKER, { prefix: GATE_PREFIX, timeoutMs: 1000 }), "gone");
+  const first = mgr.armOutputGate("s1:h1", GATE_MARKER, { prefix: GATE_PREFIX, timeoutMs: 5000 });
+  assert.equal(await mgr.armOutputGate("s1:h1", GATE_MARKER, { prefix: GATE_PREFIX, timeoutMs: 1000 }), "gone", "only one gate at a time");
+  mgr.end("s1:h1", "bye");
+  assert.equal(await first, "gone");
+});
