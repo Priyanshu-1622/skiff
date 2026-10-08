@@ -81,7 +81,8 @@ export function FileRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; 
         <span className="memdrawer__time">{new Date(entry.startedAt).toLocaleTimeString()}</span>
         {hostLabel && <span className="memrow__chip memrow__host">{hostLabel}</span>}
         {showUser && entry.username && <span className="memrow__chip">{entry.username}</span>}
-        <span className="memdrawer__cmd"><span aria-hidden="true">✎ </span>{entry.command}</span>
+        <span className="memdrawer__cmd"><span aria-hidden="true">{entry.flags?.includes("snapshot") ? "⟳ " : "✎ "}</span>{entry.command}</span>
+        {entry.flags?.includes("outside") && <span className="memrow__chip memrow__warn" title="Changed on the server without a command Skiff remembered">outside</span>}
         {entry.change && entry.change !== "modified" && !entry.note && <span className="memrow__chip">{entry.change}</span>}
         {entry.flags?.includes("assumed-home") && (
           <span className="memrow__chip memrow__warn" title="No working directory was known, so this path is relative to your home folder">path assumed</span>
@@ -92,6 +93,9 @@ export function FileRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; 
         <div className="memdrawer__body">
           {detail.isLoading && <div className="memdrawer__muted">Loading…</div>}
           {detail.isError && <div className="memdrawer__muted">Couldn't load this entry.</div>}
+          {entry.flags?.includes("outside") && (
+            <div className="memdrawer__meta">Changed outside Skiff — on the server, without a command Skiff remembered.</div>
+          )}
           {detail.data && (
             detail.data.note
               ? <div className="memdrawer__muted">{detail.data.note}. Skiff noticed a command touch this file but doesn't keep its content.</div>

@@ -595,6 +595,14 @@ function HostDialog({
   const preciseWas = !!existing?.precise_mode;
   const [precise, setPrecise] = useState(preciseWas);
   const [showLines, setShowLines] = useState(false);
+  const snapshotsWas = !!existing?.snapshots;
+  const [snapshots, setSnapshots] = useState(snapshotsWas);
+  const [showSnapshotLines, setShowSnapshotLines] = useState(false);
+  const snapshotCommands = useQuery({
+    queryKey: ["memory-snapshot-commands"],
+    queryFn: () => apiGet<{ lines: string[] }>("/api/memory/snapshot-commands"),
+    enabled: showSnapshotLines,
+  });
   const snippets = useQuery({
     queryKey: ["memory-precise-snippets"],
     queryFn: () => apiGet<Record<"bash" | "zsh" | "fish", string>>("/api/memory/precise-snippets"),
@@ -645,9 +653,10 @@ function HostDialog({
         await apiPost("/api/hosts", payload);
       } else {
         await apiPut(`/api/hosts/${existing.id}`, payload);
-        const memoryChange: { memoryMode?: "on" | "off"; preciseMode?: boolean } = {};
+        const memoryChange: { memoryMode?: "on" | "off"; preciseMode?: boolean; snapshots?: boolean } = {};
         if (remember !== rememberWas) memoryChange.memoryMode = remember ? "on" : "off";
         if (precise !== preciseWas) memoryChange.preciseMode = precise;
+        if (snapshots !== snapshotsWas) memoryChange.snapshots = snapshots;
         if (canChangeMemory && Object.keys(memoryChange).length > 0) {
           await apiPut(`/api/hosts/${existing.id}/memory`, memoryChange);
         }
@@ -831,6 +840,35 @@ function HostDialog({
                     <pre className="precise-lines__code">{snippets.data[sh]}</pre>
                   </div>
                 ))}
+              </details>
+            </div>
+          )}
+          {mode === "edit" && remember && (
+            <div className="field">
+              <label>Server snapshots</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={snapshots}
+                  aria-label="Server snapshots"
+                  className={"s-toggle" + (snapshots ? " s-toggle--on" : "")}
+                  disabled={!canChangeMemory}
+                  onClick={() => setSnapshots((v) => !v)}
+                >
+                  <span className="s-toggle__knob" />
+                </button>
+                <span style={{ fontSize: 12, color: "var(--fg-2)" }}>
+                  {canChangeMemory
+                    ? "When you connect, Skiff runs a short read-only check (OS, packages, services, ports, cron, Docker) and tells you what changed since last time that you didn't do here."
+                    : "Only an admin can change this."}
+                </span>
+              </div>
+              <details className="precise-lines" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) setShowSnapshotLines(true); }}>
+                <summary>See the exact commands</summary>
+                {snapshotCommands.isError && <div className="precise-lines__note">Couldn't load them.</div>}
+                {!snapshotCommands.data && !snapshotCommands.isError && <div className="precise-lines__note">Loading…</div>}
+                {snapshotCommands.data && <pre className="precise-lines__code">{snapshotCommands.data.lines.join("\n")}</pre>}
               </details>
             </div>
           )}
