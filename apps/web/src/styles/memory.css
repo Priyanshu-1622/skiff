@@ -1,0 +1,115 @@
+/* ============================================================
+   Skiff — Memory page
+   Search everything remembered, across hosts.
+   ============================================================ */
+
+.mempage {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.mempage__header { margin-bottom: 20px; }
+
+.mempage__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--fg-2);
+  font-size: var(--t-base);
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 16px;
+}
+.mempage__back:hover { color: var(--fg-0); }
+
+.mempage__header h1 {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  color: var(--fg-0);
+  margin: 0 0 6px;
+}
+.mempage__subtitle { font-size: var(--t-base); color: var(--fg-2); margin: 0; max-width: 560px; line-height: var(--lh-normal); }
+
+.mempage__banner {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--status-connecting-bg);
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+}
+
+.mempage__controls { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+
+.mempage__search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--fg-0);
+  font-family: var(--font-mono);
+  font-size: var(--t-base);
+}
+.mempage__search:focus { outline: none; border-color: var(--border-focus); }
+
+.mempage__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.mempage__select {
+  padding: 5px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  color: var(--fg-0);
+  font-size: var(--t-sm);
+}
+
+.mempage__chip {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.mempage__chip:hover { background: var(--bg-3); color: var(--fg-0); }
+.mempage__chip--on { background: var(--bg-4); border-color: var(--accent-500); color: var(--fg-0); }
+
+.mempage__list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.mempage__muted { padding: 28px 16px; text-align: center; font-size: var(--t-base); color: var(--fg-2); }
+
+.mempage__more {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.mempage__more:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-0); }
+
+/* Small labels on an entry row (host, person) — used by the page and drawer. */
+.memrow__chip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+  background: var(--bg-2);
+}
+.memrow__host { color: var(--accent-400); }

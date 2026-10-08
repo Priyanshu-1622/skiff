@@ -80,6 +80,16 @@ export function Sidebar({
         <button
           type="button"
           className="nav-item"
+          aria-current={location.pathname === "/memory" ? "true" : undefined}
+          onClick={() => navigate({ to: "/memory" })}
+        >
+          <span className="icon"><I.Clock size={14} /></span>
+          Memory
+        </button>
+
+        <button
+          type="button"
+          className="nav-item"
           aria-current={location.pathname === "/settings" ? "true" : undefined}
           onClick={() => navigate({ to: "/settings" })}
         >
