@@ -113,3 +113,4 @@
   background: var(--bg-2);
 }
 .memrow__host { color: var(--accent-400); }
+.memrow__warn { color: var(--status-connecting); border-color: color-mix(in oklab, var(--status-connecting) 40%, var(--border-strong)); }

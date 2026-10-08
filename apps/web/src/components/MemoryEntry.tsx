@@ -44,14 +44,28 @@ function PauseRow({ entry }: { entry: TimelineEntry }) {
 }
 
 /** One remembered command (or a pause gap), shared by the History drawer and the Memory page. */
-export function MemoryEntryRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; hostLabel?: string; showUser?: boolean }) {
+export function MemoryEntryRow({ entry, hostLabel, showUser, onRunAgain }: {
+  entry: TimelineEntry; hostLabel?: string; showUser?: boolean; onRunAgain?: (command: string) => void;
+}) {
   if (entry.kind === "pause") return <PauseRow entry={entry} />;
-  return <CommandRow entry={entry} hostLabel={hostLabel} showUser={showUser} />;
+  return <CommandRow entry={entry} hostLabel={hostLabel} showUser={showUser} onRunAgain={onRunAgain} />;
 }
 
-function CommandRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; hostLabel?: string; showUser?: boolean }) {
+function CommandRow({ entry, hostLabel, showUser, onRunAgain }: {
+  entry: TimelineEntry; hostLabel?: string; showUser?: boolean; onRunAgain?: (command: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(entry.command);
+      setCopyState("ok");
+    } catch {
+      setCopyState("fail");
+    }
+    window.setTimeout(() => setCopyState("idle"), 1500);
+  };
   const queryClient = useQueryClient();
   const forget = useMutation({
     mutationFn: () => apiDelete(`/api/memory/entries/${entry.id}`),
@@ -79,6 +93,7 @@ function CommandRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; host
         {hostLabel && <span className="memrow__chip memrow__host">{hostLabel}</span>}
         {showUser && entry.username && <span className="memrow__chip">{entry.username}</span>}
         <span className="memdrawer__cmd">{entry.command}</span>
+        {entry.flags?.includes("fullscreen") && <span className="memrow__chip memrow__warn">full-screen · not captured</span>}
         <span className="memdrawer__status">{statusLabel(entry)}</span>
       </button>
       {open && (
@@ -93,9 +108,19 @@ function CommandRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; host
           )}
           <div className="memdrawer__footer">
             {!confirming ? (
-              <button type="button" className="memdrawer__forget" onClick={() => setConfirming(true)}>
-                Forget
-              </button>
+              <div className="memdrawer__actions">
+                {onRunAgain && (
+                  <button type="button" className="memdrawer__action" title="Types the command into the terminal — you press Enter" onClick={() => onRunAgain(entry.command)}>
+                    Run again
+                  </button>
+                )}
+                <button type="button" className="memdrawer__action" onClick={copy}>
+                  {copyState === "ok" ? "Copied" : copyState === "fail" ? "Couldn't copy" : "Copy"}
+                </button>
+                <button type="button" className="memdrawer__forget" onClick={() => setConfirming(true)}>
+                  Forget
+                </button>
+              </div>
             ) : (
               <div className="memdrawer__confirm">
                 <span>Forget this entry for good?</span>

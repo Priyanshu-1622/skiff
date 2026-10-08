@@ -986,6 +986,41 @@
   z-index: 7;
   overflow: hidden;
 }
+.memdrawer__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 1;
+  touch-action: none;
+}
+.memdrawer__resize:hover { background: color-mix(in oklab, var(--accent-500) 35%, transparent); }
+.memdrawer__day {
+  position: sticky;
+  top: 0;
+  padding: 6px 12px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.memdrawer__actions { display: flex; gap: 14px; align-items: center; }
+.memdrawer__action {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--t-xs);
+  color: var(--accent-400);
+}
+.memdrawer__action:hover { text-decoration: underline; }
 .memdrawer__header {
   display: flex;
   align-items: center;

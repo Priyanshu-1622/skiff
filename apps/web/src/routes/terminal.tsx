@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import * as I from "@/components/icons";
 import { MemoryDrawer } from "@/components/MemoryDrawer";
 import { MemoryNotice } from "@/components/MemoryNotice";
+import { getStored, setStored } from "@/lib/safe-storage";
 
 type ConnState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -51,7 +52,8 @@ export function TerminalRoute() {
   });
   const [reconnectKey, setReconnectKey] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(() => getStored("skiff.memdrawer.open") === "1");
+  useEffect(() => { setStored("skiff.memdrawer.open", showHistory ? "1" : "0"); }, [showHistory]);
   const [memoryState, setMemoryState] = useState<"remembering" | "paused" | "off" | "unavailable" | null>(null);
   const [pendingFp, setPendingFp] = useState<{ fingerprint: string; hostname: string; algorithm?: string } | null>(null);
   // The server presented a different key than the one pinned for this host.
@@ -154,6 +156,16 @@ export function TerminalRoute() {
       sock.send(JSON.stringify({ type: "memory_pause", paused }));
     }
   }, []);
+
+  // "Run again" from History: put the command on the prompt, never press Enter.
+  // Every control character (incl. CR/LF) is stripped so it can't execute by itself.
+  const runAgain = useCallback((command: string) => {
+    const sock = socketRef.current;
+    const text = command.replace(/[\u0000-\u001f\u007f]/g, "");
+    if (!text || connState !== "connected" || sock?.readyState !== WebSocket.OPEN) return;
+    sock.send(JSON.stringify({ type: "input", data: encodeInputToBase64(text) }));
+    xtermRef.current?.focus();
+  }, [connState]);
 
   const approveFingerprint = useCallback(() => {
     const sock = socketRef.current;
@@ -665,7 +677,7 @@ export function TerminalRoute() {
         )}
       </div>
 
-      <MemoryDrawer hostId={hostId} open={showHistory} onClose={() => setShowHistory(false)} />
+      <MemoryDrawer hostId={hostId} open={showHistory} onClose={() => setShowHistory(false)} onRunAgain={runAgain} />
     </div>
   );
 }

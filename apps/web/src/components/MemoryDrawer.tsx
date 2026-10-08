@@ -1,10 +1,40 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { groupByDay } from "@skiff/shared";
 import { apiGet } from "@/lib/api";
+import { getStored, setStored } from "@/lib/safe-storage";
 import * as I from "@/components/icons";
 import { MemoryEntryRow as EntryRow, type TimelineEntry } from "@/components/MemoryEntry";
 
-export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: boolean; onClose: () => void }) {
+const WIDTH_KEY = "skiff.memdrawer.width";
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 360;
+const clampWidth = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(w)));
+
+function readWidth(): number {
+  const n = Number(getStored(WIDTH_KEY));
+  return Number.isFinite(n) && n > 0 ? clampWidth(n) : DEFAULT_WIDTH;
+}
+
+export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
+  hostId: string; open: boolean; onClose: () => void; onRunAgain?: (command: string) => void;
+}) {
+  const [width, setWidth] = useState(readWidth);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => setWidth(clampWidth(window.innerWidth - ev.clientX));
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      setStored(WIDTH_KEY, String(widthRef.current));
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  };
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [includeOutput, setIncludeOutput] = useState(false);
@@ -35,7 +65,8 @@ export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: 
   if (!open) return null;
 
   return (
-    <div className="memdrawer">
+    <div className="memdrawer" style={{ width }}>
+      <div className="memdrawer__resize" onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize history" />
       <div className="memdrawer__header">
         <I.Clock size={13} />
         <span>History</span>
@@ -64,7 +95,7 @@ export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: 
             {results.isLoading && <div className="memdrawer__muted">Searching…</div>}
             {results.isError && <div className="memdrawer__muted">Couldn't search — the vault may have locked.</div>}
             {results.data && results.data.entries.length === 0 && <div className="memdrawer__muted">No matches.</div>}
-            {results.data?.entries.map((e) => <EntryRow key={e.id} entry={e} />)}
+            {results.data?.entries.map((e) => <EntryRow key={e.id} entry={e} onRunAgain={onRunAgain} />)}
           </>
         ) : (
           <>
@@ -73,7 +104,12 @@ export function MemoryDrawer({ hostId, open, onClose }: { hostId: string; open: 
             {timeline.data && timeline.data.entries.length === 0 && (
               <div className="memdrawer__muted">No commands recorded yet.</div>
             )}
-            {timeline.data?.entries.map((e) => <EntryRow key={e.id} entry={e} />)}
+            {timeline.data && groupByDay(timeline.data.entries).map((g) => (
+              <div key={g.label}>
+                <div className="memdrawer__day">{g.label}</div>
+                {g.items.map((e) => <EntryRow key={e.id} entry={e} onRunAgain={onRunAgain} />)}
+              </div>
+            ))}
           </>
         )}
       </div>
