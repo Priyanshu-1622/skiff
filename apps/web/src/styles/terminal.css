@@ -937,6 +937,23 @@
 .conn__label.error .dot { background: var(--status-error); }
 .conn__label.idle .dot { background: var(--fg-3); }
 
+/* ── Memory: pill in the terminal bar ───────────────────── */
+.conn__mem {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  padding: 2px 9px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.conn__mem:disabled { cursor: default; }
+.conn__mem--remembering { color: var(--status-connected); }
+.conn__mem--remembering:hover { background: var(--status-connected-bg); }
+.conn__mem--paused { color: var(--status-connecting); background: var(--status-connecting-bg); }
+
 /* ── Memory: first-connect notice ────────────────────────── */
 .memnotice {
   position: absolute;
@@ -1053,4 +1070,15 @@
 .memdrawer__forget:disabled, .memdrawer__cancel:disabled { opacity: 0.5; cursor: default; }
 .memdrawer__confirm { display: flex; align-items: center; gap: 10px; font-size: var(--t-xs); color: var(--fg-1); }
 .memdrawer__err { margin-top: 4px; font-size: var(--t-xs); color: var(--status-error); }
+.memdrawer__pause {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: var(--t-xs);
+  color: var(--status-connecting);
+  border-bottom: 1px dashed var(--border);
+}
+.memdrawer__pause-time { color: var(--fg-2); font-family: var(--font-mono); }
 .memdrawer__muted { padding: 16px 12px; font-size: var(--t-sm); color: var(--fg-2); }

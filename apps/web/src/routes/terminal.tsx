@@ -52,6 +52,7 @@ export function TerminalRoute() {
   const [reconnectKey, setReconnectKey] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [memoryState, setMemoryState] = useState<"remembering" | "paused" | "off" | "unavailable" | null>(null);
   const [pendingFp, setPendingFp] = useState<{ fingerprint: string; hostname: string; algorithm?: string } | null>(null);
   // The server presented a different key than the one pinned for this host.
   const [mismatch, setMismatch] = useState<{ expected: string; actual: string; algorithm?: string; canReset: boolean } | null>(null);
@@ -146,6 +147,13 @@ export function TerminalRoute() {
       toast.error("Couldn't reset the host key", { description: e?.message });
     }
   }, [hostId, reconnect]);
+
+  const setMemoryPaused = useCallback((paused: boolean) => {
+    const sock = socketRef.current;
+    if (sock?.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: "memory_pause", paused }));
+    }
+  }, []);
 
   const approveFingerprint = useCallback(() => {
     const sock = socketRef.current;
@@ -255,6 +263,9 @@ export function TerminalRoute() {
         let msg: TerminalMessage;
         try { msg = JSON.parse(event.data); } catch { return; }
         switch (msg.type) {
+          case "memory":
+            setMemoryState(msg.state ?? null);
+            break;
           case "data":
             term.write(Uint8Array.from(atob(msg.data!), c => c.charCodeAt(0)));
             break;
@@ -333,6 +344,7 @@ export function TerminalRoute() {
           return;
         }
         setConnState((s) => s === "error" ? s : "disconnected");
+        setMemoryState(null);
         // Keep a specific reason the server already gave ("opened in another
         // window", "timed out"); only fall back to a generic one.
         setStatusMsg((m) => (!m || m === "Connected" || m === "Reattached" || m.endsWith("…")) ? "Disconnected" : m);
@@ -462,6 +474,26 @@ export function TerminalRoute() {
             A+
           </button>
         </div>
+
+        {connState === "connected" && memoryState && (
+          <button
+            type="button"
+            className={`conn__mem conn__mem--${memoryState}`}
+            disabled={memoryState === "off" || memoryState === "unavailable"}
+            onClick={() => setMemoryPaused(memoryState === "remembering")}
+            title={
+              memoryState === "remembering" ? "Skiff is remembering the commands you run here. Click to pause."
+              : memoryState === "paused" ? "Paused: nothing you run is being remembered. Click to resume."
+              : memoryState === "off" ? "Memory is off for this host."
+              : "Memory couldn't keep up and stopped for this session."
+            }
+          >
+            {memoryState === "remembering" ? "● Remembering"
+              : memoryState === "paused" ? "❚❚ Paused — not remembering"
+              : memoryState === "off" ? "Memory off"
+              : "Memory unavailable"}
+          </button>
+        )}
 
         <button
           type="button"

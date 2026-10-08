@@ -5,6 +5,8 @@ import * as I from "@/components/icons";
 
 interface TimelineEntry {
   id: string;
+  kind?: "command" | "pause";
+  by?: string | null;
   startedAt: string;
   finishedAt: string | null;
   command: string;
@@ -27,7 +29,23 @@ function statusLabel(entry: TimelineEntry): string {
   return entry.exitCode === 0 ? "✓" : `✗ ${entry.exitCode}`;
 }
 
+function PauseRow({ entry }: { entry: TimelineEntry }) {
+  const start = new Date(entry.startedAt).toLocaleTimeString();
+  const end = entry.ended === "running" || !entry.finishedAt ? "now" : new Date(entry.finishedAt).toLocaleTimeString();
+  return (
+    <div className="memdrawer__pause">
+      <span>❚❚ Memory paused</span>
+      <span className="memdrawer__pause-time">{start} – {end}{entry.by ? ` · ${entry.by}` : ""}</span>
+    </div>
+  );
+}
+
 function EntryRow({ entry }: { entry: TimelineEntry }) {
+  if (entry.kind === "pause") return <PauseRow entry={entry} />;
+  return <CommandRow entry={entry} />;
+}
+
+function CommandRow({ entry }: { entry: TimelineEntry }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
