@@ -49,6 +49,25 @@ export function saveCommandEntry(
   );
 }
 
+export function beginPauseEntry(
+  db: Database.Database,
+  dataKey: Buffer,
+  opts: { memorySessionId: string; serverId: string | null; userId: string | null; username: string | null },
+): string {
+  const id = generateId("mentry");
+  const { nonce, data } = sealEntry(dataKey, `memory-entry:${id}`, Buffer.from(JSON.stringify({ by: opts.username }), "utf8"));
+  db.prepare(
+    `INSERT INTO memory_entries
+       (id, memory_session_id, server_id, user_id, kind, started_at, finished_at, exit_code, confidence, flags, output_bytes, output_pruned, nonce, data)
+     VALUES (?, ?, ?, ?, 'pause', ?, NULL, NULL, NULL, '[]', 0, 0, ?, ?)`,
+  ).run(id, opts.memorySessionId, opts.serverId, opts.userId, new Date().toISOString(), nonce, data);
+  return id;
+}
+
+export function endPauseEntry(db: Database.Database, entryId: string): void {
+  db.prepare("UPDATE memory_entries SET finished_at = ? WHERE id = ? AND kind = 'pause' AND finished_at IS NULL").run(new Date().toISOString(), entryId);
+}
+
 export function loadCommandEntry(db: Database.Database, dataKey: Buffer, entryId: string): EntryPayload {
   const row = db.prepare("SELECT nonce, data FROM memory_entries WHERE id = ?").get(entryId) as
     | { nonce: Buffer; data: Buffer } | undefined;

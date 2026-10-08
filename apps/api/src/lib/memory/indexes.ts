@@ -50,7 +50,7 @@ export class MemoryIndexes {
       for (;;) {
         const rows = this.db.prepare(
           `SELECT me.rowid AS rid, me.id, ms.host_id, me.started_at, me.finished_at, me.exit_code, me.confidence, me.flags,
-                  me.nonce, me.data, ms.key_id
+                  me.kind, me.nonce, me.data, ms.key_id
              FROM memory_entries me
              JOIN memory_sessions ms ON ms.id = me.memory_session_id
             WHERE me.rowid > ?${visibleUserId !== null ? " AND me.user_id = ?" : ""}
@@ -60,6 +60,7 @@ export class MemoryIndexes {
         if (rows.length === 0) return;
         const before = index.watermark;
         for (const row of rows) {
+          if (row.kind !== "command") { index.skip(row.rid); continue; } // pause rows etc. are not searchable
           const key = keys.get(row.key_id);
           if (!key) { index.skip(row.rid); continue; }
           let payload: { command: string; output: string; cwd: string | null };

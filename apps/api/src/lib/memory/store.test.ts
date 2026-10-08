@@ -5,8 +5,8 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runColumnMigrations } from "../../db/client.js";
-import { newDataKey } from "../../crypto/data-keys.js";
-import { beginMemorySession, endMemorySession, saveCommandEntry, loadCommandEntry, pruneOldOutput } from "./store.js";
+import { newDataKey, openEntry } from "../../crypto/data-keys.js";
+import { beginMemorySession, endMemorySession, saveCommandEntry, loadCommandEntry, pruneOldOutput, beginPauseEntry, endPauseEntry } from "./store.js";
 import type { CommandEvent } from "../capture/engine.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -155,4 +155,41 @@ test("pruneOldOutput skips a single corrupted entry (fails to decrypt) without a
   assert.equal(loadCommandEntry(d, key, rows[2].id).output, "", "entry after the corrupted one was trimmed");
   const untouchedRow = d.prepare("SELECT output_bytes FROM memory_entries WHERE id = ?").get(rows[1].id) as any;
   assert.equal(untouchedRow.output_bytes, 6, "the corrupted row itself is left alone, not further damaged");
+});
+
+test("beginPauseEntry stores an encrypted pause row that is still open, naming who paused", () => {
+  const d = freshDb();
+  const key = newDataKey();
+  const sid = beginMemorySession(d, { serverId: null, hostId: "h1", userId: "u1", username: "bob", keyId: "key1", recordingId: null });
+  const id = beginPauseEntry(d, key, { memorySessionId: sid, serverId: null, userId: "u1", username: "bob" });
+  const row = d.prepare("SELECT kind, started_at, finished_at, user_id, nonce, data FROM memory_entries WHERE id = ?").get(id) as any;
+  assert.equal(row.kind, "pause");
+  assert.equal(row.user_id, "u1");
+  assert.ok(row.started_at);
+  assert.equal(row.finished_at, null);
+  assert.deepEqual(JSON.parse(openEntry(key, `memory-entry:${id}`, row.nonce, row.data).toString("utf8")), { by: "bob" });
+  assert.ok(!Buffer.from(row.data).includes("bob"), "the name is not stored in the clear");
+
+  const anon = beginPauseEntry(d, key, { memorySessionId: sid, serverId: null, userId: null, username: null });
+  const anonRow = d.prepare("SELECT nonce, data FROM memory_entries WHERE id = ?").get(anon) as any;
+  assert.deepEqual(JSON.parse(openEntry(key, `memory-entry:${anon}`, anonRow.nonce, anonRow.data).toString("utf8")), { by: null });
+});
+
+test("endPauseEntry closes a pause once, never overwrites it, and ignores unknown or non-pause ids", () => {
+  const d = freshDb();
+  const key = newDataKey();
+  const sid = beginMemorySession(d, { serverId: null, hostId: "h1", userId: null, username: null, keyId: "key1", recordingId: null });
+  const id = beginPauseEntry(d, key, { memorySessionId: sid, serverId: null, userId: null, username: null });
+  endPauseEntry(d, id);
+  const first = (d.prepare("SELECT finished_at FROM memory_entries WHERE id = ?").get(id) as any).finished_at;
+  assert.ok(first);
+  d.prepare("UPDATE memory_entries SET finished_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(id);
+  endPauseEntry(d, id);
+  assert.equal((d.prepare("SELECT finished_at FROM memory_entries WHERE id = ?").get(id) as any).finished_at, "2000-01-01T00:00:00.000Z", "a second call changes nothing");
+  assert.doesNotThrow(() => endPauseEntry(d, "nope"));
+
+  saveCommandEntry(d, key, { memorySessionId: sid, serverId: null, userId: null, event: fakeEvent({ ended: "running" }) });
+  const cmd = d.prepare("SELECT id FROM memory_entries WHERE kind = 'command'").get() as any;
+  endPauseEntry(d, cmd.id);
+  assert.equal((d.prepare("SELECT finished_at FROM memory_entries WHERE id = ?").get(cmd.id) as any).finished_at, null, "a command entry is never touched");
 });

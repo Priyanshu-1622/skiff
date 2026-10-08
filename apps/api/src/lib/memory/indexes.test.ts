@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { runColumnMigrations } from "../../db/client.js";
 import { newDataKey, wrapDataKey } from "../../crypto/data-keys.js";
 import { SessionStore } from "../../crypto/session-store.js";
-import { beginMemorySession, saveCommandEntry } from "./store.js";
+import { beginMemorySession, saveCommandEntry, beginPauseEntry } from "./store.js";
 import { MemoryIndexes } from "./indexes.js";
 import type { CommandEvent } from "../capture/engine.js";
 
@@ -187,5 +187,17 @@ test("after forgetting the newest entry, a new entry that reuses its rowid is st
 test("forget with no live indexes is a no-op", async () => {
   const { indexes, done } = setup();
   await assert.doesNotReject(indexes.forget("anything"));
+  done();
+});
+
+test("pause entries are not indexed, and do not stall the watermark", async () => {
+  const { db, vaultKey, indexes, done } = setup();
+  const s = seed(db, vaultKey, "k1", null, ["whoami"]);
+  beginPauseEntry(db, s.dataKey, { memorySessionId: s.memorySessionId, serverId: null, userId: null, username: "bob" });
+  saveCommandEntry(db, s.dataKey, { memorySessionId: s.memorySessionId, serverId: null, userId: null, event: ev("uptime") });
+  const ix = await indexes.forLogin("login1", vaultKey, null);
+  assert.equal(ix.size(), 2, "the two commands only");
+  assert.equal(ix.search("uptime").length, 1);
+  assert.equal(ix.watermark, 3, "the pause row advanced the watermark");
   done();
 });

@@ -387,3 +387,76 @@ test("screen mode: the captured output does not end with the returned prompt lin
   assert.ok(!/\$\s*$/.test(engine.events[0].output), `output must not end with the prompt, got ${JSON.stringify(engine.events[0].output)}`);
   mirror.dispose();
 });
+
+async function runCmd(engine: CaptureEngine, cmd: string, out = "") {
+  typeAndEnter(engine, cmd);
+  await engine.onOutput(`${cmd}\r\n${out}$ `);
+}
+
+test("pause: commands run while paused are not captured, and capture resumes afterwards", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("$ ");
+  await runCmd(engine, "whoami", "fakeuser\r\n");
+  engine.pause();
+  await runCmd(engine, "secret-cmd", "secret-output\r\n");
+  await engine.resume();
+  await runCmd(engine, "pwd", "/home/u\r\n");
+  assert.deepEqual(engine.events.map((e) => e.command), ["whoami", "pwd"]);
+  assert.ok(engine.events.every((e) => !e.output.includes("secret")), "nothing from the pause leaks into later entries");
+  mirror.dispose();
+});
+
+test("pause: a command already running when the pause starts is dropped even if it finishes after resume", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("$ ");
+  typeAndEnter(engine, "make");
+  await engine.onOutput("make\r\n"); // running, prompt not back yet
+  engine.pause();
+  await engine.onOutput("password: hunter2\r\n");
+  await engine.resume();
+  await engine.onOutput("done\r\n$ "); // prompt returns after resume
+  assert.deepEqual(engine.events, []);
+  mirror.dispose();
+});
+
+test("pause: resume is ordered after output still queued, so a paused command is not remembered", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("$ ");
+  engine.pause();
+  typeAndEnter(engine, "early");
+  const pending = engine.onOutput("early\r\nsecret\r\n$ "); // not awaited: still queued
+  const resumed = engine.resume(); // called while that output is still queued
+  await pending;
+  await resumed;
+  assert.deepEqual(engine.events, []);
+  assert.equal(engine.isPaused, false);
+  mirror.dispose();
+});
+
+test("pause: ending the session while paused emits nothing for the running command", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("$ ");
+  typeAndEnter(engine, "tail -f log");
+  await engine.onOutput("tail -f log\r\n");
+  engine.pause();
+  await engine.end();
+  assert.deepEqual(engine.events, []);
+  mirror.dispose();
+});
+
+test("pause and resume are idempotent and isPaused reflects the state", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  assert.equal(engine.isPaused, false);
+  engine.pause();
+  engine.pause();
+  assert.equal(engine.isPaused, true);
+  await engine.resume();
+  await engine.resume();
+  assert.equal(engine.isPaused, false);
+  mirror.dispose();
+});

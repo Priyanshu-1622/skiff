@@ -13,9 +13,10 @@ export interface MemoryRouteDeps {
 }
 
 interface EntryPayload {
-  command: string;
-  output: string;
-  cwd: string | null;
+  command?: string;
+  output?: string;
+  cwd?: string | null;
+  by?: string | null;
 }
 
 export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
@@ -73,8 +74,10 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
             id: row.id,
             startedAt: row.started_at,
             finishedAt: row.finished_at,
-            command: payload.command,
-            cwd: payload.cwd,
+            kind: row.kind,
+            command: payload.command ?? "",
+            cwd: payload.cwd ?? null,
+            by: row.kind === "pause" ? (payload.by ?? null) : null,
             exitCode: row.exit_code,
             confidence: row.confidence,
             flags: JSON.parse(row.flags),
@@ -91,13 +94,13 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
     app.get("/api/memory/entries/:id", { preHandler: auth }, async (req, reply) => {
       const { id } = req.params as { id: string };
       const row = app.skiffDb.raw.prepare(
-        `SELECT me.id, me.started_at, me.finished_at, me.exit_code, me.confidence, me.flags,
+        `SELECT me.id, me.kind, me.started_at, me.finished_at, me.exit_code, me.confidence, me.flags,
                 me.output_bytes, me.output_pruned, me.user_id, me.nonce, me.data, ms.key_id
            FROM memory_entries me
            JOIN memory_sessions ms ON ms.id = me.memory_session_id
           WHERE me.id = ?`,
       ).get(id) as any | undefined;
-      if (!row) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
+      if (!row || row.kind !== "command") return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
       if (isTeam() && !req.sessionUser?.isAdmin && row.user_id !== req.sessionUser?.id) {
         return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Entry not found"));
       }

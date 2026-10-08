@@ -13,7 +13,7 @@ import { linkServer } from "../lib/servers.js";
 import { newDataKey, wrapDataKey } from "../crypto/data-keys.js";
 import { TermMirror } from "../lib/term-mirror.js";
 import { CaptureEngine } from "../lib/capture/engine.js";
-import { beginMemorySession, endMemorySession, saveCommandEntry } from "../lib/memory/store.js";
+import { beginMemorySession, endMemorySession, saveCommandEntry, beginPauseEntry, endPauseEntry } from "../lib/memory/store.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
@@ -53,6 +53,11 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
       deps.sessionManager.detachByLogin(loginSessionId, VAULT_LOCKED_REASON);
     });
     app.addHook("onClose", async () => { stopListening(); });
+
+    // One control per live session that is capturing: the attached window can
+    // read its state and pause/resume it. Hosts with Memory off have none.
+    type MemoryState = "remembering" | "paused" | "off" | "unavailable";
+    const memoryControls = new Map<string, { state(): MemoryState; setPaused(paused: boolean): void }>();
 
     // Browsers attach cookies to WebSocket handshakes from any page, and
     // SameSite=Lax still lets another site on the same domain (another app on
@@ -139,6 +144,12 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
       // screen are sent from attach's callback, which runs before any output
       // produced during the attach is flushed — so the browser always gets the
       // screen first, then everything after it, exactly once.
+      const sendMemoryState = () => {
+        if (socket.readyState !== 1) return;
+        const control = memoryControls.get(managedId);
+        socket.send(JSON.stringify({ type: "memory", state: control ? control.state() : "off" }));
+      };
+
       const attachAndReplay = (message: string) => {
         void deps.sessionManager.attach(managedId, client, (screen) => {
           if (socket.readyState !== 1) return;
@@ -146,6 +157,7 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
           if (screen.length) {
             socket.send(JSON.stringify({ type: "data", data: screen.toString("base64") }));
           }
+          sendMemoryState();
         }).catch(() => { /* session ended meanwhile; the socket is told separately */ });
       };
 
@@ -173,6 +185,11 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
             // Without this every recording ended up "interrupted" with no
             // duration, because the session outlived every client that left.
             deps.sessionManager.end(managedId, "Session ended by user");
+          } else if (msg.type === "memory_pause") {
+            // Same rule as end_session: only the window actually showing the session.
+            if (!isAttached() || typeof msg.paused !== "boolean") return;
+            memoryControls.get(managedId)?.setPaused(msg.paused);
+            sendMemoryState();
           }
         } catch { /* ignore malformed messages */ }
       });
@@ -561,6 +578,31 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                   },
                 });
 
+                let paused = false;
+                let pauseEntryId: string | null = null;
+                memoryControls.set(managedId, {
+                  state: () => (captureEngine.failed ? "unavailable" : paused ? "paused" : "remembering"),
+                  setPaused: (next) => {
+                    if (next === paused) return;
+                    paused = next;
+                    try {
+                      if (next) {
+                        captureEngine.pause();
+                        pauseEntryId = beginPauseEntry(db, memKey, {
+                          memorySessionId: memSessionId,
+                          serverId: serverRow?.server_id ?? null,
+                          userId: entry.user?.id ?? null,
+                          username: entry.user?.username ?? null,
+                        });
+                      } else {
+                        captureEngine.resume().catch(() => {});
+                        if (pauseEntryId) endPauseEntry(db, pauseEntryId);
+                        pauseEntryId = null;
+                      }
+                    } catch { /* pause bookkeeping must never affect the session */ }
+                  },
+                });
+
                 const priorOnOutput = session.onOutput;
                 session.onOutput = (chunk) => {
                   if (priorOnOutput) priorOnOutput(chunk);
@@ -577,6 +619,8 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                 const priorOnEnd = session.onEnd;
                 session.onEnd = () => {
                   if (priorOnEnd) priorOnEnd();
+                  if (pauseEntryId) { try { endPauseEntry(db, pauseEntryId); } catch { /* best-effort */ } pauseEntryId = null; }
+                  memoryControls.delete(managedId);
                   // end() drains everything already queued (including output
                   // that arrived just before the stream closed) before its
                   // own finalization runs — see CaptureEngine's class doc.

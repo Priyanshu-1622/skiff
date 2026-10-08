@@ -86,6 +86,8 @@ type Phase =
       flags: string[];
       promptPrefix: string;
       startedAt: number;
+      /** Began, ran or finished during a pause: never emitted. */
+      suppressed: boolean;
     };
 
 /**
@@ -143,6 +145,7 @@ export class CaptureEngine {
   private queue: Promise<void> = Promise.resolve();
   private queuedBytes = 0;
   private _failed = false;
+  private paused = false;
 
   constructor(private readonly mirror: TermMirror, opts: CaptureEngineOptions = {}) {
     this.onCommand = opts.onCommand;
@@ -151,6 +154,21 @@ export class CaptureEngine {
   /** Set once the queued backlog exceeded MAX_QUEUED_BYTES — capture is off for the rest of this session (spec §11). */
   get failed(): boolean {
     return this._failed;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** Stop remembering, effective immediately: anything still queued counts as paused (the safe side), and a command already running is dropped even if it finishes after resume. */
+  pause(): void {
+    this.paused = true;
+    if (this.phase.name === "running") this.phase.suppressed = true;
+  }
+
+  /** Resume, ordered after everything already queued, so nothing that arrived during the pause can be remembered. */
+  resume(): Promise<void> {
+    return this.enqueue(() => { this.paused = false; });
   }
 
   private enqueue(fn: () => void | Promise<void>): Promise<void> {
@@ -311,7 +329,7 @@ export class CaptureEngine {
     return this.enqueue(() => {
       if (this.phase.name === "running") {
         const p = this.phase;
-        this.pushEvent(p.command, null, p.cwd, p.confidence, p.flags, p.output, p.outputBytes, "running", p.startedAt);
+        if (!p.suppressed) this.pushEvent(p.command, null, p.cwd, p.confidence, p.flags, p.output, p.outputBytes, "running", p.startedAt);
         this.phase = { name: "idle" };
       }
     });
@@ -353,13 +371,14 @@ export class CaptureEngine {
           flags: [],
           promptPrefix: this.phase.promptPrefix,
           startedAt: Date.now(),
+          suppressed: this.paused,
         };
         break;
       }
       case "command_finished": {
         if (this.phase.name !== "running") break;
         const p = this.phase;
-        this.pushEvent(p.command, m.exitCode, p.cwd, "marker", p.flags, p.output, p.outputBytes, "exited", p.startedAt);
+        if (!p.suppressed) this.pushEvent(p.command, m.exitCode, p.cwd, "marker", p.flags, p.output, p.outputBytes, "exited", p.startedAt);
         this.phase = { name: "idle" };
         break;
       }
@@ -386,13 +405,14 @@ export class CaptureEngine {
       flags: [],
       promptPrefix,
       startedAt: Date.now(),
+      suppressed: this.paused,
     };
   }
 
   private finishScreenCommand(): void {
     if (this.phase.name !== "running") return;
     const p = this.phase;
-    this.pushEvent(p.command, null, p.cwd, "screen", p.flags, p.output, p.outputBytes, "exited", p.startedAt);
+    if (!p.suppressed) this.pushEvent(p.command, null, p.cwd, "screen", p.flags, p.output, p.outputBytes, "exited", p.startedAt);
     this.phase = { name: "idle" };
   }
 
