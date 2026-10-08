@@ -544,3 +544,93 @@ test("team mode: a member can forget only their own entries, an admin anyone's, 
     assert.ok(!audit[0].detail.includes("whoami") && !audit[1].detail.includes("pwd"), "no command text in the audit detail");
   } finally { await app.close(); sshd.close(); }
 });
+
+const entriesOf = async (app: any, cookie: string, qs: string) => ((await search(app, cookie, qs)).json() as any).data.entries as any[];
+
+test("browse lists everything newest first when the query is empty, and an empty query without browse stays empty", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie); // whoami, pwd
+    assert.deepEqual((await entriesOf(app, cookie, "q=&browse=1")).map((e) => e.command), ["pwd", "whoami"]);
+    assert.deepEqual(await entriesOf(app, cookie, "q="), []);
+    assert.deepEqual((await entriesOf(app, cookie, "browse=1")).map((e) => e.command), ["pwd", "whoami"], "a missing q counts as empty too");
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("hosts accepts a list, and an unknown or empty id matches nothing instead of erroring", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    const other = (await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie },
+      payload: { label: "o", hostname: "10.0.0.9", port: 22, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+    })).json() as any;
+    await runTwoCommands(hostId, base, cookie);
+    assert.equal((await entriesOf(app, cookie, `q=whoami&hosts=${hostId},${other.data.id}`)).length, 1);
+    assert.deepEqual(await entriesOf(app, cookie, `q=whoami&hosts=${other.data.id}`), []);
+    const unknown = await search(app, cookie, "q=whoami&hosts=nope,");
+    assert.equal(unknown.statusCode, 200);
+    assert.deepEqual((unknown.json() as any).data.entries, []);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("before and beforeId page through browse results without repeating or skipping", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const { app, base, cookie, hostId } = await appWithHost(sshd);
+  try {
+    await runTwoCommands(hostId, base, cookie);
+    const first = await entriesOf(app, cookie, "q=&browse=1&limit=1");
+    assert.deepEqual(first.map((e) => e.command), ["pwd"]);
+    const second = await entriesOf(app, cookie, `q=&browse=1&limit=1&before=${encodeURIComponent(first[0].startedAt)}&beforeId=${first[0].id}`);
+    assert.deepEqual(second.map((e) => e.command), ["whoami"]);
+    assert.deepEqual(await entriesOf(app, cookie, `q=&browse=1&limit=1&before=${encodeURIComponent(second[0].startedAt)}&beforeId=${second[0].id}`), []);
+  } finally { await app.close(); sshd.close(); }
+});
+
+test("team: an admin can narrow to one person; a member's user filter is ignored and never shows anyone else's entries", async () => {
+  const sshd = fakeSshdWithShell();
+  await new Promise<void>((r) => sshd.listen(0, "127.0.0.1", r));
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const base = `127.0.0.1:${(app.server.address() as any).port}`;
+  try {
+    const setup = await app.inject({
+      method: "POST", url: "/api/vault/setup",
+      payload: { password: "admin-password-1", mode: "team", username: "admin" },
+    });
+    const adminCookie = cookieFrom(setup);
+    const host = (await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie: adminCookie },
+      payload: { label: "t", hostname: "127.0.0.1", port: sshd.address().port, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+    })).json() as any;
+    const login = async (username: string) => {
+      await app.inject({
+        method: "POST", url: "/api/team/users", headers: { cookie: adminCookie },
+        payload: { username, tempPassword: `${username}-temp-password`, isAdmin: false },
+      });
+      return cookieFrom(await app.inject({ method: "POST", url: "/api/team/login", payload: { username, password: `${username}-temp-password` } }));
+    };
+    const idOf = async (cookie: string) => ((await app.inject({ method: "GET", url: "/api/team/me", headers: { cookie } })).json() as any).data.user.id as string;
+    const bob = await login("bob");
+    const carol = await login("carol");
+    const bobId = await idOf(bob);
+    await runTwoCommands(host.data.id, base, bob);
+    await runTwoCommands(host.data.id, base, carol);
+
+    const names = (entries: any[]) => [...new Set(entries.map((e) => e.username))].sort();
+    const everyone = await entriesOf(app, adminCookie, "q=&browse=1");
+    assert.equal(everyone.length, 4);
+    assert.deepEqual(names(everyone), ["bob", "carol"]);
+    const justBob = await entriesOf(app, adminCookie, `q=&browse=1&user=${bobId}`);
+    assert.equal(justBob.length, 2);
+    assert.deepEqual(names(justBob), ["bob"]);
+    const carolAsksForBob = await entriesOf(app, carol, `q=&browse=1&user=${bobId}`);
+    assert.equal(carolAsksForBob.length, 2, "her own two entries, not an empty list and not bob's");
+    assert.deepEqual(names(carolAsksForBob), ["carol"]);
+  } finally { await app.close(); sshd.close(); }
+});

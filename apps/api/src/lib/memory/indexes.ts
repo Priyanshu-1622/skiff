@@ -49,7 +49,7 @@ export class MemoryIndexes {
     try {
       for (;;) {
         const rows = this.db.prepare(
-          `SELECT me.rowid AS rid, me.id, ms.host_id, me.started_at, me.finished_at, me.exit_code, me.confidence, me.flags,
+          `SELECT me.rowid AS rid, me.id, me.user_id AS uid, ms.username, ms.host_id, me.started_at, me.finished_at, me.exit_code, me.confidence, me.flags,
                   me.kind, me.nonce, me.data, ms.key_id
              FROM memory_entries me
              JOIN memory_sessions ms ON ms.id = me.memory_session_id
@@ -75,6 +75,7 @@ export class MemoryIndexes {
             exitCode: row.exit_code, confidence: row.confidence, flags: JSON.parse(row.flags),
             ended: row.finished_at ? "exited" : "running",
             command: payload.command, cwd: payload.cwd ?? "", output: payload.output ?? "",
+            userId: row.uid ?? null, username: row.username ?? null,
           });
         }
         // Every row advances the watermark (added or skipped); if none did, re-selecting would loop forever.

@@ -132,16 +132,24 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
     });
 
     app.get("/api/memory/search", { preHandler: auth }, async (req, reply) => {
-      const { q, hostId, failed, since, output, limit } = req.query as {
-        q?: string; hostId?: string; failed?: string; since?: string; output?: string; limit?: string;
+      const { q, hostId, hosts, user, failed, since, before, beforeId, output, browse, limit } = req.query as {
+        q?: string; hostId?: string; hosts?: string; user?: string; failed?: string; since?: string;
+        before?: string; beforeId?: string; output?: string; browse?: string; limit?: string;
       };
       const visibleUserId = isTeam() && !req.sessionUser?.isAdmin ? (req.sessionUser?.id ?? "") : null;
       const index = await indexes.forLogin(req.sessionId, req.vaultKey, visibleUserId);
       const entries = index.search(q ?? "", {
         hostId: hostId || undefined,
+        // An explicit list is passed as given, so an unknown or empty id matches nothing.
+        hostIds: hosts !== undefined ? hosts.split(",") : undefined,
+        // Only a team admin may narrow to one person; for everyone else the parameter is ignored.
+        userId: isTeam() && req.sessionUser?.isAdmin ? (user || undefined) : undefined,
         failedOnly: failed === "1",
         since: since || undefined,
+        before: before || undefined,
+        beforeId: beforeId || undefined,
         includeOutput: output === "1",
+        browse: browse === "1",
         limit: parseInt(limit ?? "50", 10) || 50,
       });
       return reply.send(ok({ entries }));

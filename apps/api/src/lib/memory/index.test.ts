@@ -5,7 +5,7 @@ import { MemoryIndex, toMatchQuery, OUTPUT_INDEX_CAP_CHARS, type IndexDoc } from
 function doc(n: number, over: Partial<IndexDoc> = {}): IndexDoc {
   return {
     rowid: n, id: `m${n}`, hostId: "h1", startedAt: new Date(2026, 8, 1, 0, n).toISOString(), finishedAt: new Date(2026, 8, 1, 0, n, 5).toISOString(),
-    exitCode: null, confidence: "screen", flags: [], ended: "exited", command: "ls", cwd: "/home/u", output: "", ...over,
+    exitCode: null, confidence: "screen", flags: [], ended: "exited", command: "ls", cwd: "/home/u", output: "", userId: null, username: null, ...over,
   };
 }
 
@@ -122,5 +122,56 @@ test("remove of an id that was never indexed still resets a skip-advanced waterm
   assert.equal(ix.watermark, 2);
   ix.remove("not-indexed"); // row 2 is later deleted from the database
   assert.equal(ix.watermark, 1);
+  ix.close();
+});
+
+test("hits carry who ran the command", () => {
+  const ix = new MemoryIndex();
+  ix.add(doc(1, { command: "make", userId: "u1", username: "bob" }));
+  const hit = ix.search("make")[0];
+  assert.equal(hit.userId, "u1");
+  assert.equal(hit.username, "bob");
+  ix.close();
+});
+
+test("filters: several hosts, one person, and a before cursor", () => {
+  const ix = new MemoryIndex();
+  ix.add(doc(1, { command: "make a", hostId: "h1", userId: "u1" }));
+  ix.add(doc(2, { command: "make b", hostId: "h2", userId: "u2" }));
+  ix.add(doc(3, { command: "make c", hostId: "h3", userId: "u1" }));
+  assert.deepEqual(ix.search("make", { hostIds: ["h1", "h3"] }).map((h) => h.id), ["m3", "m1"]);
+  assert.deepEqual(ix.search("make", { hostIds: [] }).map((h) => h.id), ["m3", "m2", "m1"], "an empty list means no host filter");
+  assert.deepEqual(ix.search("make", { hostIds: ["nope", ""] }), []);
+  assert.deepEqual(ix.search("make", { hostIds: [""] }), [], "a list of only empty ids matches nothing rather than everything");
+  assert.deepEqual(ix.search("make", { userId: "u1" }).map((h) => h.id), ["m3", "m1"]);
+  assert.deepEqual(ix.search("make", { before: doc(3).startedAt }).map((h) => h.id), ["m2", "m1"]);
+  ix.close();
+});
+
+test("browse lists everything matching the filters newest first when the query is empty; without browse an empty query is empty", () => {
+  const ix = new MemoryIndex();
+  ix.add(doc(1, { command: "alpha", hostId: "h1" }));
+  ix.add(doc(2, { command: "beta", hostId: "h2" }));
+  ix.add(doc(3, { command: "gamma", hostId: "h1" }));
+  assert.deepEqual(ix.search("", { browse: true }).map((h) => h.id), ["m3", "m2", "m1"]);
+  assert.deepEqual(ix.search("   ", { browse: true, hostIds: ["h1"] }).map((h) => h.id), ["m3", "m1"]);
+  assert.deepEqual(ix.search("", { browse: true, limit: 2, before: doc(3).startedAt }).map((h) => h.id), ["m2", "m1"]);
+  assert.deepEqual(ix.search(""), []);
+  assert.deepEqual(ix.search("alp", { browse: true }).map((h) => h.id), ["m1"], "a real query still searches under browse");
+  ix.close();
+});
+
+test("entries that share a timestamp are not lost across a before cursor", () => {
+  const ix = new MemoryIndex();
+  const t = new Date(2026, 8, 1, 1, 0).toISOString();
+  ix.add(doc(1, { command: "same a", startedAt: t }));
+  ix.add(doc(2, { command: "same b", startedAt: t }));
+  ix.add(doc(3, { command: "same c", startedAt: t }));
+  const first = ix.search("same", { limit: 2 });
+  assert.equal(first.length, 2);
+  const last = first[first.length - 1];
+  const second = ix.search("same", { limit: 2, before: last.startedAt, beforeId: last.id });
+  assert.deepEqual([...first, ...second].map((h) => h.id).sort(), ["m1", "m2", "m3"]);
+  assert.equal(second.length, 1, "no repeats across the boundary");
   ix.close();
 });

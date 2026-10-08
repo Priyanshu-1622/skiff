@@ -36,7 +36,7 @@ function seed(d: Database.Database, vaultKey: Buffer, keyId: string, userId: str
   const dataKey = newDataKey();
   const { nonce, wrapped } = wrapDataKey(dataKey, vaultKey);
   d.prepare("INSERT INTO session_keys (id, wrapped_key, nonce, created_at) VALUES (?, ?, ?, 'then')").run(keyId, wrapped, nonce);
-  const id = beginMemorySession(d, { serverId: null, hostId: "h1", userId, username: null, keyId, recordingId: null });
+  const id = beginMemorySession(d, { serverId: null, hostId: "h1", userId, username: userId ? `name-${userId}` : null, keyId, recordingId: null });
   for (const c of commands) saveCommandEntry(d, dataKey, { memorySessionId: id, serverId: null, userId, event: ev(c) });
   return { memorySessionId: id, dataKey };
 }
@@ -199,5 +199,19 @@ test("pause entries are not indexed, and do not stall the watermark", async () =
   assert.equal(ix.size(), 2, "the two commands only");
   assert.equal(ix.search("uptime").length, 1);
   assert.equal(ix.watermark, 3, "the pause row advanced the watermark");
+  done();
+});
+
+test("indexed entries carry the user id and username they were run under", async () => {
+  const { db, vaultKey, indexes, done } = setup();
+  seed(db, vaultKey, "k1", "u1", ["whoami"]);
+  seed(db, vaultKey, "k2", null, ["pwd"]);
+  const ix = await indexes.forLogin("login1", vaultKey, null);
+  const who = ix.search("whoami")[0];
+  assert.equal(who.userId, "u1");
+  assert.equal(who.username, "name-u1");
+  const pwd = ix.search("pwd")[0];
+  assert.equal(pwd.userId, null);
+  assert.equal(pwd.username, null);
   done();
 });
