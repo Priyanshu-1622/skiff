@@ -180,6 +180,11 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         path_nonce: Buffer.from(f.path_nonce).toString("base64"),
         path_data: Buffer.from(f.path_data).toString("base64"),
       }));
+      const serverSnapshots = (db.prepare("SELECT * FROM server_snapshots").all() as any[]).map((f) => ({
+        ...f,
+        nonce: Buffer.from(f.nonce).toString("base64"),
+        data: Buffer.from(f.data).toString("base64"),
+      }));
       const fileContents = (db.prepare("SELECT * FROM file_contents").all() as any[]).map((f) => ({
         ...f,
         nonce: Buffer.from(f.nonce).toString("base64"),
@@ -190,7 +195,7 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         exportedAt: new Date().toISOString(),
         vaultMeta: normalizedMeta,
         users,
-        servers, sessionKeys, serverFiles, fileContents,
+        servers, sessionKeys, serverFiles, fileContents, serverSnapshots,
         folders, hosts,
         credentials: credentials.map((c: any) => ({
           ...c,
@@ -346,6 +351,13 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           last_content_id: z.string().nullable().optional(),
           updated_at: z.string().optional(),
         })).default([]),
+        serverSnapshots: z.array(z.object({
+          id: z.string().min(1),
+          server_id: z.string().min(1),
+          taken_at: z.string(),
+          nonce: b64,
+          data: b64,
+        })).default([]),
         fileContents: z.array(z.object({
           id: z.string().min(1),
           server_id: z.string().min(1),
@@ -420,6 +432,10 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
             Buffer.from(s.file_key_wrapped, "base64"), Buffer.from(s.file_key_nonce, "base64"),
           );
         }
+        for (const f of body.serverSnapshots) {
+          db.prepare("INSERT INTO server_snapshots (id, server_id, taken_at, nonce, data) VALUES (?, ?, ?, ?, ?)")
+            .run(f.id, f.server_id, f.taken_at, Buffer.from(f.nonce, "base64"), Buffer.from(f.data, "base64"));
+        }
         for (const f of body.fileContents) {
           db.prepare("INSERT INTO file_contents (id, server_id, nonce, data) VALUES (?, ?, ?, ?)")
             .run(f.id, f.server_id, Buffer.from(f.nonce, "base64"), Buffer.from(f.data, "base64"));
@@ -442,13 +458,14 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         }
         for (const h of body.hosts) {
           db.prepare(
-            `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, server_id, memory_mode, created_at, last_connected_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO hosts (id, folder_id, label, hostname, port, username, auth_method, credential_id, tags, starred, server_id, memory_mode, precise_mode, snapshots, created_at, last_connected_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             h.id, h.folder_id ?? null, h.label, h.hostname, h.port, h.username,
             h.auth_method, h.credential_id ?? null,
             typeof h.tags === "string" ? h.tags : JSON.stringify(h.tags ?? []),
             h.starred ? 1 : 0, h.server_id ?? null, h.memory_mode === "off" ? "off" : "on",
+            h.precise_mode ? 1 : 0, h.snapshots ? 1 : 0,
             h.created_at ?? new Date().toISOString(), h.last_connected_at ?? null,
           );
         }

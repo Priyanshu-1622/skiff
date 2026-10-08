@@ -262,3 +262,88 @@ test("the command text in the entry is redacted", async () => {
   assert.equal(saved.length, 1);
   assert.ok(!saved[0]!.command.includes("abc123secret"), saved[0]!.command);
 });
+
+// ── checkWatched: changes made outside Skiff since the last session ──────────
+
+test("checkWatched reports a file that differs from the stored version, flagged outside, and moves the baseline", async () => {
+  const first = setup();
+  first.fs.set("/srv/a", "one\n");
+  await first.run("vim /srv/a", () => first.fs.set("/srv/a", "two\n")); // the store now holds "two"
+  const fs2 = new FakeFs();
+  fs2.set("/srv/a", "two\nsomeone else was here\n");
+  const second = setup({ db: first.db, key: first.key, fs: fs2 });
+  await second.tracker.checkWatched();
+  assert.equal(second.saved.length, 1);
+  const e = second.saved[0]!;
+  assert.equal(e.path, "/srv/a");
+  assert.equal(e.change, "modified");
+  assert.deepEqual(e.flags, ["outside"]);
+  assert.match(e.diff, /\+someone else was here/);
+  assert.equal(e.command, "");
+  assert.equal(getContent(second.db, second.key, e.oldContentId!), "two\n");
+  assert.equal(getContent(second.db, second.key, e.newContentId!), "two\nsomeone else was here\n");
+  assert.equal(lastContentId(second.db, second.key, "srv1", "/srv/a"), e.newContentId, "the stored version moved on, so the next session won't report it again");
+  // The next command's baseline is what was just seen, so its diff doesn't repeat the outside change.
+  await second.run("vim /srv/a", () => fs2.set("/srv/a", "two\nsomeone else was here\nmine\n"));
+  assert.equal(second.saved.length, 2);
+  assert.ok(!second.saved[1]!.diff.includes("someone else was here\n-"), second.saved[1]!.diff);
+  assert.match(second.saved[1]!.diff, /\+mine/);
+  assert.ok(!second.saved[1]!.flags.includes("outside"));
+  // And a second check finds nothing new.
+  const before = second.saved.length;
+  await second.tracker.checkWatched();
+  assert.equal(second.saved.length, before);
+});
+
+test("checkWatched: unchanged, never-watched, and still-missing files produce nothing; a deleted one is reported", async () => {
+  const first = setup();
+  first.fs.set("/srv/keep", "k\n");
+  first.fs.set("/srv/gone", "g\n");
+  await first.run("vim /srv/keep", () => first.fs.set("/srv/keep", "k2\n"));
+  await first.run("vim /srv/gone", () => first.fs.set("/srv/gone", "g2\n"));
+  const fs2 = new FakeFs();
+  fs2.set("/srv/keep", "k2\n");           // unchanged
+  fs2.set("/srv/unwatched", "x\n");       // never watched: not even read
+  const second = setup({ db: first.db, key: first.key, fs: fs2 });
+  await second.tracker.checkWatched();    // /srv/gone is missing now
+  assert.deepEqual(second.saved.map((e) => [e.path, e.change, e.flags]), [["/srv/gone", "deleted", ["outside"]]]);
+  assert.ok(!fs2.reads.includes("/srv/unwatched"));
+  // Missing before and still missing: nothing more.
+  await second.tracker.checkWatched();
+  assert.equal(second.saved.length, 1);
+});
+
+test("checkWatched ignores reader errors, files that became binary or sensitive, and stays quiet with no watched paths", async () => {
+  const empty = setup();
+  await empty.tracker.checkWatched();
+  assert.equal(empty.saved.length, 0);
+  assert.equal(empty.fs.reads.length, 0);
+
+  const first = setup();
+  for (const p of ["/srv/a", "/srv/b", "/srv/c"]) first.fs.set(p, "v1\n");
+  for (const p of ["/srv/a", "/srv/b", "/srv/c"]) await first.run(`vim ${p}`, () => first.fs.set(p, "v2\n"));
+  const fs2 = new FakeFs();
+  fs2.throwOn = "/srv/a";
+  fs2.set("/srv/b", Buffer.from([0, 1, 2]));
+  fs2.set("/srv/c", "-----BEGIN RSA PRIVATE KEY-----\nzz\n");
+  const second = setup({ db: first.db, key: first.key, fs: fs2 });
+  await second.tracker.checkWatched();
+  assert.equal(second.saved.length, 0);
+});
+
+test("checkWatched stops when disposed or past its time budget", async () => {
+  const first = setup();
+  for (const p of ["/srv/a", "/srv/b", "/srv/c"]) first.fs.set(p, "v1\n");
+  for (const p of ["/srv/a", "/srv/b", "/srv/c"]) await first.run(`vim ${p}`, () => first.fs.set(p, "v2\n"));
+  const mk = () => { const f = new FakeFs(); for (const p of ["/srv/a", "/srv/b", "/srv/c"]) f.set(p, "v3\n"); return f; };
+
+  const disposed = setup({ db: first.db, key: first.key, fs: mk() });
+  disposed.tracker.dispose();
+  await disposed.tracker.checkWatched();
+  assert.equal(disposed.saved.length, 0);
+
+  let t = 0;
+  const slow = setup({ db: first.db, key: first.key, fs: mk() });
+  await slow.tracker.checkWatched({ budgetMs: 100, now: () => (t += 60) }); // each look at the clock costs 60 ms
+  assert.ok(slow.saved.length >= 1 && slow.saved.length < 3, `budget stops the sweep part-way (saw ${slow.saved.length})`);
+});

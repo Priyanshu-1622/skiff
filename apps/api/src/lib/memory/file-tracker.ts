@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { redact } from "../capture/redact.js";
 import { extractCandidatePaths } from "./paths.js";
 import { isTrackableText, unifiedDiff } from "./diff.js";
-import { getContent, lastContentId, putContent, rememberFile } from "./file-store.js";
+import { getContent, lastContentId, putContent, rememberFile, watchedPaths } from "./file-store.js";
 
 export type ReadResult =
   | { kind: "file"; bytes: Buffer; resolvedPath: string }
@@ -49,6 +49,7 @@ interface Target {
   before: Snap;
 }
 
+const MAX_WATCHED_CHECK = 50;
 const SENSITIVE_NOTE = "sensitive file — not tracked";
 const SHADOW = /^\/etc\/(g?shadow-?)$/;
 
@@ -65,6 +66,8 @@ export class FileTracker {
   private disposed = false;
 
   constructor(private readonly deps: FileTrackerDeps) {}
+
+  get isDisposed(): boolean { return this.disposed; }
 
   /** After this nothing is read or written: the key this tracker seals under may be about to be zeroed. */
   dispose(): void {
@@ -99,6 +102,46 @@ export class FileTracker {
         } catch { /* one path failing must not stop the others */ }
       }
     } catch { /* never throw into the capture pipeline */ }
+  }
+
+  /**
+   * At the start of a session: look again at every watched file and report the
+   * ones that no longer match the version Skiff last stored — somebody changed
+   * them while Skiff wasn't watching. Bounded in count and time; best-effort.
+   */
+  async checkWatched(opts: { budgetMs?: number; now?: () => number } = {}): Promise<void> {
+    if (this.disposed) return;
+    const now = opts.now ?? Date.now;
+    const deadline = now() + (opts.budgetMs ?? 15_000);
+    const { db, fileKey, serverId } = this.deps;
+    let paths: string[];
+    try { paths = watchedPaths(db, fileKey, serverId).slice(0, MAX_WATCHED_CHECK); } catch { return; }
+    for (const path of paths) {
+      if (this.disposed || now() > deadline) return;
+      try {
+        const id = lastContentId(db, fileKey, serverId, path);
+        if (!id) continue; // last seen missing (or no stored version): nothing to compare with
+        const oldText = getContent(db, fileKey, id);
+        if (oldText === null) continue;
+        const after = await this.read(path);
+        if (this.disposed) return;
+        const base = { path, flags: ["outside"], command: "", startedAt: Date.now() };
+        if (after.t === "text") {
+          this.seen.set(path, after);
+          if (after.text === oldText) continue;
+          const newId = putContent(db, fileKey, serverId, after.text);
+          rememberFile(db, fileKey, serverId, path, newId);
+          const d = unifiedDiff(oldText, after.text);
+          this.deps.save({ ...base, change: "modified", diff: redactLines(d.diff), added: d.added, removed: d.removed, oldContentId: id, newContentId: newId, note: null });
+        } else if (after.t === "missing") {
+          this.seen.set(path, after);
+          rememberFile(db, fileKey, serverId, path, null);
+          const d = unifiedDiff(oldText, "");
+          this.deps.save({ ...base, change: "deleted", diff: redactLines(d.diff), added: d.added, removed: d.removed, oldContentId: id, newContentId: null, note: null });
+        }
+        // A note (binary now, sensitive, denied…) or an unreadable result: say nothing.
+      } catch { /* one path failing must not stop the sweep */ }
+    }
   }
 
   private async prepare(info: { command: string; cwd: string | null }): Promise<Target[]> {

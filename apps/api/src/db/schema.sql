@@ -290,6 +290,16 @@ CREATE TABLE IF NOT EXISTS server_files (
   PRIMARY KEY (server_id, path_hash)
 );
 
+-- Server snapshots (opt-in per host), sealed under the server's file key.
+CREATE TABLE IF NOT EXISTS server_snapshots (
+  id TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  taken_at TEXT NOT NULL,
+  nonce BLOB NOT NULL,
+  data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_server_snapshots_server ON server_snapshots(server_id, taken_at);
+
 -- File versions, sealed under the server's file key; id = HMAC(file key, text).
 CREATE TABLE IF NOT EXISTS file_contents (
   id TEXT PRIMARY KEY,

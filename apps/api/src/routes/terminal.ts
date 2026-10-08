@@ -15,8 +15,11 @@ import { TermMirror } from "../lib/term-mirror.js";
 import { CaptureEngine } from "../lib/capture/engine.js";
 import { injectPrecise, type PreciseResult } from "../lib/memory/precise-inject.js";
 import { beginMemorySession, endMemorySession, saveCommandEntry, saveFileEntry, beginPauseEntry, endPauseEntry } from "../lib/memory/store.js";
-import { FileTracker } from "../lib/memory/file-tracker.js";
+import { FileTracker, type FileEntryInput } from "../lib/memory/file-tracker.js";
 import { SftpReader } from "../lib/memory/sftp-reader.js";
+import { execOnce } from "../lib/memory/exec-once.js";
+import { commandsSince, runSnapshot } from "../lib/memory/snapshot-runner.js";
+import { latestSnapshot } from "../lib/memory/snapshot.js";
 import { ApiErrorCode } from "@skiff/shared";
 
 export interface TerminalRouteDeps {
@@ -509,6 +512,17 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
               }
             } catch { fileKey?.fill(0); fileKey = null; fileServerId = null; }
           }
+          // Server snapshots: which commands were remembered since the last one
+          // (to tell the user's own changes from outside ones). Opening those
+          // entries needs the vault key, so it happens now.
+          let priorCommands: string[] = [];
+          if (fileKey && fileServerId) {
+            try {
+              const sr = db.prepare("SELECT snapshots FROM hosts WHERE id = ?").get(hostId) as { snapshots: number } | undefined;
+              const prev = sr?.snapshots ? latestSnapshot(db, fileKey, fileServerId) : null;
+              if (prev) priorCommands = commandsSince(db, vaultKey, fileServerId, prev.takenAt);
+            } catch { priorCommands = []; }
+          }
           releaseVaultKey();
 
           const session = deps.sessionManager.register({
@@ -603,21 +617,38 @@ export const terminalRoutes: (deps: TerminalRouteDeps) => FastifyPluginAsync =
                 if (fileKey && fileServerId) {
                   fileKeyAdopted = true; // zeroed with the memory session below
                   sftpReader = new SftpReader(ssh);
-                  fileTracker = new FileTracker({
-                    db, fileKey, serverId: fileServerId, reader: sftpReader,
-                    save: (f) => {
-                      try {
-                        saveFileEntry(db, memKey, {
-                          memorySessionId: memSessionId,
-                          serverId: fileServerId,
-                          userId: entry.user?.id ?? null,
-                          path: f.path, diff: f.diff,
-                          meta: { change: f.change, added: f.added, removed: f.removed, note: f.note, by: f.command },
-                          flags: f.flags, oldContentId: f.oldContentId, newContentId: f.newContentId, startedAt: f.startedAt,
-                        });
-                      } catch { /* tracking must never break the session */ }
-                    },
-                  });
+                  const saveFile = (f: FileEntryInput) => {
+                    try {
+                      saveFileEntry(db, memKey, {
+                        memorySessionId: memSessionId,
+                        serverId: fileServerId,
+                        userId: entry.user?.id ?? null,
+                        path: f.path, diff: f.diff,
+                        meta: { change: f.change, added: f.added, removed: f.removed, note: f.note, by: f.command },
+                        flags: f.flags, oldContentId: f.oldContentId, newContentId: f.newContentId, startedAt: f.startedAt,
+                      });
+                    } catch { /* tracking must never break the session */ }
+                  };
+                  fileTracker = new FileTracker({ db, fileKey, serverId: fileServerId, reader: sftpReader, save: saveFile });
+                  // Start of session, in the background and best-effort: files changed
+                  // since last time, then (opt-in per host) a server snapshot.
+                  const tracker = fileTracker;
+                  const snapshotsOn = !!(db.prepare("SELECT snapshots FROM hosts WHERE id = ?").get(hostId) as { snapshots: number } | undefined)?.snapshots;
+                  const startFileKey = fileKey;
+                  const startServerId = fileServerId;
+                  void (async () => {
+                    try { await tracker.checkWatched(); } catch { /* best-effort */ }
+                    if (!snapshotsOn || tracker.isDisposed) return;
+                    try {
+                      await runSnapshot({
+                        db, fileKey: startFileKey, serverId: startServerId,
+                        exec: (command, timeoutMs) => execOnce(ssh, command, timeoutMs),
+                        recentCommands: priorCommands,
+                        save: saveFile,
+                        isActive: () => !tracker.isDisposed,
+                      });
+                    } catch { /* best-effort */ }
+                  })();
                 }
                 const captureEngine = new CaptureEngine(captureMirror, {
                   onCommandStart: (info) => { fileTracker?.onStart(info); },

@@ -46,6 +46,8 @@ function fakeServer(opts: { sftpDelayMs?: number } = {}) {
   const files = new Map<string, Buffer>();
   const dirs = new Set<string>(["/srv", "/home/u"]);
   const sftpOps: string[] = [];
+  const execs: string[] = [];
+  const box = { snapshotReply: null as string | null }; // what the snapshot script prints; null = the server prints nothing useful
   const server = new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
@@ -67,6 +69,12 @@ function fakeServer(opts: { sftpDelayMs?: number } = {}) {
           else if ((m = cmd.match(/^sed -i d (\S+)$/))) { const p = m[1]!; finish(() => files.delete(p)); }
           else st.write("\r\n$ ");
         });
+      });
+      s.on("exec", (acc: any, _rej: any, info: any) => {
+        const st = acc();
+        execs.push(info.command);
+        if (info.command.includes("@@skiff:end") && box.snapshotReply !== null) st.write(box.snapshotReply);
+        st.exit(0); st.end();
       });
       s.on("sftp", (accSftp: any) => {
         const sftp = accSftp();
@@ -111,7 +119,7 @@ function fakeServer(opts: { sftpDelayMs?: number } = {}) {
     }));
     c.on("error", () => {});
   });
-  return { server, files, sftpOps };
+  return { server, files, sftpOps, execs, box };
 }
 
 async function openTerminal(hostId: string, base: string, cookie: string) {
@@ -434,4 +442,129 @@ test("team mode: a member sees and fetches only their own file changes; an admin
     assert.equal((await fetchFile(carol)).statusCode, 404, "another member cannot read bob's file versions");
     assert.equal((await app.inject({ method: "GET", url: `/api/memory/entries/${bobRow.id}`, headers: { cookie: carol } })).statusCode, 404);
   } finally { await app.close(); fake.server.close(); }
+});
+
+// ── Outside changes and server snapshots ─────────────────────────────────────
+
+const snapOut = (over: Record<string, string[]> = {}) => {
+  const base: Record<string, string[]> = { os: ["Ubuntu 22.04"], kernel: ["Linux 5.15.0-101"], packages: ["bash 5.1", "nginx 1.18"], services: ["ssh.service"], ports: ["0.0.0.0:22"], cron: [], docker: [] };
+  return Object.entries({ ...base, ...over }).map(([k, v]) => [`@@skiff:${k}`, ...v].join("\n")).join("\n") + "\n@@skiff:end\n";
+};
+const putMemory = (s: Awaited<ReturnType<typeof setup>>, body: unknown, cookie = s.cookie) =>
+  s.app.inject({ method: "PUT", url: `/api/hosts/${s.hostId}/memory`, headers: { cookie }, payload: body as any });
+const fileRowsApi = async (s: Awaited<ReturnType<typeof setup>>) => (await timeline(s)).filter((e) => e.kind === "file");
+const snapshotRuns = (s: Awaited<ReturnType<typeof setup>>) => s.execs.filter((c) => c.includes("@@skiff:end")).length;
+
+test("a file changed on the server between sessions shows up as changed outside Skiff when the next session starts", async () => {
+  const s = await setup();
+  try {
+    s.files.set("/srv/app.conf", Buffer.from("a\n"));
+    await s.session(async (t) => { await t.type("vim /srv/app.conf\n"); });
+    s.files.set("/srv/app.conf", Buffer.from("a\nedited\nsomeone else\n")); // not by Skiff
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    const rows = await fileRowsApi(s);
+    const outside = rows.find((r) => r.flags.includes("outside"));
+    assert.ok(outside, JSON.stringify(rows.map((r) => [r.command, r.flags])));
+    assert.equal(outside.command, "/srv/app.conf");
+    const d = ((await get(s, `/api/memory/entries/${outside.id}`)).json() as any).data;
+    assert.match(d.diff, /\+someone else/);
+    assert.equal(d.hasOld && d.hasNew, true);
+  } finally { await s.close(); }
+});
+
+test("snapshots are off by default: nothing is run on the server", async () => {
+  const s = await setup();
+  try {
+    s.box.snapshotReply = snapOut();
+    await s.session(async (t) => { await t.type("whoami\n"); });
+    assert.equal(snapshotRuns(s), 0);
+  } finally { await s.close(); }
+});
+
+test("with snapshots on: the first run stores a baseline, an outside change in the next session is reported, an explained one is not", async () => {
+  const s = await setup();
+  try {
+    assert.equal((await putMemory(s, { snapshots: true })).statusCode, 200);
+    s.box.snapshotReply = snapOut();
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    assert.equal(snapshotRuns(s), 1);
+    assert.equal((await fileRowsApi(s)).length, 0, "the first snapshot has nothing to compare with");
+    assert.equal((s.db.raw.prepare("SELECT COUNT(*) n FROM server_snapshots").get() as any).n, 1);
+
+    // Next session: packages and ports changed and nothing remembered explains them.
+    s.box.snapshotReply = snapOut({ packages: ["bash 5.1", "nginx 1.24"], ports: ["0.0.0.0:22", "0.0.0.0:8080"] });
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    assert.equal(snapshotRuns(s), 2);
+    const snapRows = (await fileRowsApi(s)).filter((r) => r.flags.includes("snapshot"));
+    assert.deepEqual(snapRows.map((r) => r.command).sort(), ["Installed packages", "Listening ports"]);
+    const pk = snapRows.find((r) => r.command === "Installed packages");
+    assert.deepEqual(pk.flags, ["snapshot", "outside"]);
+    assert.equal(pk.added, 1);
+    assert.equal(pk.removed, 1);
+    assert.match(((await get(s, `/api/memory/entries/${pk.id}`)).json() as any).data.diff, /\+nginx 1\.24/);
+
+    // A session where the user ran an install; the next snapshot's package change is explained, cron is not.
+    await s.session(async (t) => { await t.type("echo apt-get install redis > /srv/ignore\n", 800); });
+    s.box.snapshotReply = snapOut({ packages: ["bash 5.1", "nginx 1.24", "redis 7"], ports: ["0.0.0.0:22", "0.0.0.0:8080"], cron: ["* * * * * job"] });
+    const before = (await fileRowsApi(s)).filter((r) => r.flags.includes("snapshot")).length;
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    const after = (await fileRowsApi(s)).filter((r) => r.flags.includes("snapshot"));
+    const fresh = after.slice(0, after.length - before).map((r) => r.command);
+    assert.deepEqual(fresh, ["Scheduled jobs (cron)"], "packages were explained by the apt-get command; cron was not");
+  } finally { await s.close(); }
+});
+
+test("a server that gives no usable snapshot gets one note, not one per session", async () => {
+  const s = await setup();
+  try {
+    await putMemory(s, { snapshots: true });
+    s.box.snapshotReply = null;
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    const notes = (await fileRowsApi(s)).filter((r) => r.flags.includes("snapshot-failed"));
+    assert.equal(notes.length, 1);
+    assert.match(notes[0].note, /take a server snapshot/i);
+  } finally { await s.close(); }
+});
+
+test("the host memory API takes snapshots on its own, validates it, audits it", async () => {
+  const s = await setup();
+  try {
+    const on = (await putMemory(s, { snapshots: true })).json() as any;
+    assert.equal(on.data.snapshots, true);
+    assert.equal(on.data.preciseMode, false, "the other fields are left alone");
+    assert.equal((await putMemory(s, { snapshots: "yes" })).statusCode, 400);
+    assert.equal((await putMemory(s, {})).statusCode, 400);
+    assert.equal(((await putMemory(s, { snapshots: false })).json() as any).data.snapshots, false);
+  } finally { await s.close(); }
+});
+
+test("the exact snapshot commands are shown to logged-in users only, and are read-only", async () => {
+  const s = await setup();
+  try {
+    assert.equal((await s.app.inject({ method: "GET", url: "/api/memory/snapshot-commands" })).statusCode, 401);
+    const d = ((await get(s, "/api/memory/snapshot-commands")).json() as any).data;
+    assert.ok(d.lines.length >= 7);
+    assert.ok(d.sections.some((x: any) => x.id === "packages"));
+    assert.ok(!d.lines.join("\n").includes("rm "));
+  } finally { await s.close(); }
+});
+
+test("a backup carries snapshots and the per-host switches, and a restore brings them back", async () => {
+  const s = await setup();
+  try {
+    await putMemory(s, { snapshots: true });
+    s.box.snapshotReply = snapOut();
+    await s.session(async (t) => { await t.type("whoami\n", 1500); });
+    const backup = ((await s.app.inject({ method: "GET", url: "/api/settings/backup", headers: { cookie: s.cookie } })).json() as any).data;
+    assert.equal(backup.serverSnapshots.length, 1);
+    assert.ok(!JSON.stringify(backup.serverSnapshots).includes("nginx"), "snapshot contents stay encrypted in the backup");
+    const db2 = memDb();
+    const app2 = await buildApp({ config: TEST_CONFIG, db: db2 });
+    const res = await app2.inject({ method: "POST", url: "/api/settings/restore", payload: backup });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal((db2.raw.prepare("SELECT COUNT(*) n FROM server_snapshots").get() as any).n, 1);
+    assert.equal((db2.raw.prepare("SELECT snapshots FROM hosts").get() as any).snapshots, 1);
+    await app2.close();
+  } finally { await s.close(); }
 });

@@ -256,7 +256,7 @@ test("preciseMode can be switched on and off, alone or with memoryMode, and each
     assert.equal((await getHost(app, cookie, id)).precise_mode, 0, "off by default");
     const on = await putHostMemory(app, cookie, id, { preciseMode: true });
     assert.equal(on.statusCode, 200);
-    assert.deepEqual((on.json() as any).data, { id, memoryMode: "on", preciseMode: true });
+    assert.deepEqual((on.json() as any).data, { id, memoryMode: "on", preciseMode: true, snapshots: false });
     assert.equal((await getHost(app, cookie, id)).precise_mode, 1);
     await putHostMemory(app, cookie, id, { memoryMode: "off" });
     const afterMemory = await getHost(app, cookie, id);

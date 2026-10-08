@@ -289,18 +289,21 @@ export const hostRoutes: (deps: HostRouteDeps) => FastifyPluginAsync =
       const body = z.object({
         memoryMode: z.enum(["on", "off"]).optional(),
         preciseMode: z.boolean().optional(),
-      }).refine((b) => b.memoryMode !== undefined || b.preciseMode !== undefined, { message: "memoryMode or preciseMode is required" }).parse(req.body);
+        snapshots: z.boolean().optional(),
+      }).refine((b) => b.memoryMode !== undefined || b.preciseMode !== undefined || b.snapshots !== undefined, { message: "memoryMode, preciseMode or snapshots is required" }).parse(req.body);
       const db = app.skiffDb.raw;
       const host = db.prepare("SELECT id FROM hosts WHERE id = ?").get(id);
       if (!host) return reply.code(404).send(err(ApiErrorCode.NOT_FOUND, "Host not found"));
       if (body.memoryMode !== undefined) db.prepare("UPDATE hosts SET memory_mode = ? WHERE id = ?").run(body.memoryMode, id);
       if (body.preciseMode !== undefined) db.prepare("UPDATE hosts SET precise_mode = ? WHERE id = ?").run(body.preciseMode ? 1 : 0, id);
+      if (body.snapshots !== undefined) db.prepare("UPDATE hosts SET snapshots = ? WHERE id = ?").run(body.snapshots ? 1 : 0, id);
       const detail: Record<string, unknown> = {};
+      if (body.snapshots !== undefined) detail.snapshots = body.snapshots;
       if (body.memoryMode !== undefined) detail.memoryMode = body.memoryMode;
       if (body.preciseMode !== undefined) detail.preciseMode = body.preciseMode;
       writeAudit(db, { user: req.sessionUser, action: "host.memory", resourceType: "host", resourceId: id, detail, ip: req.ip });
-      const now = db.prepare("SELECT memory_mode, precise_mode FROM hosts WHERE id = ?").get(id) as { memory_mode: string; precise_mode: number };
-      return reply.send(ok({ id, memoryMode: now.memory_mode, preciseMode: !!now.precise_mode }));
+      const now = db.prepare("SELECT memory_mode, precise_mode, snapshots FROM hosts WHERE id = ?").get(id) as { memory_mode: string; precise_mode: number; snapshots: number };
+      return reply.send(ok({ id, memoryMode: now.memory_mode, preciseMode: !!now.precise_mode, snapshots: !!now.snapshots }));
     });
 
     app.delete("/api/hosts/:id/known-host", { preHandler: ownerOnly }, async (req, reply) => {

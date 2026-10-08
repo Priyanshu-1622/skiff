@@ -6,6 +6,7 @@ import { makeKeyCache } from "../lib/memory/keys.js";
 import { MemoryIndexes } from "../lib/memory/indexes.js";
 import { writeAudit } from "../lib/audit.js";
 import { PRECISE_SNIPPETS } from "../lib/memory/precise.js";
+import { SNAPSHOT_SCRIPT, SNAPSHOT_SECTIONS } from "../lib/memory/snapshot.js";
 import { serverFileKey } from "../lib/servers.js";
 import { getContent, releaseContents } from "../lib/memory/file-store.js";
 import type { FileMeta } from "../lib/memory/store.js";
@@ -215,6 +216,10 @@ export const memoryRoutes: (deps: MemoryRouteDeps) => FastifyPluginAsync =
 
     // The exact lines Precise mode types into a shell, so the UI can show them.
     app.get("/api/memory/precise-snippets", { preHandler: auth }, async (_req, reply) => reply.send(ok(PRECISE_SNIPPETS)));
+
+    // The exact read-only commands a server snapshot runs, so the UI can show them before anyone turns it on.
+    app.get("/api/memory/snapshot-commands", { preHandler: auth }, async (_req, reply) =>
+      reply.send(ok({ sections: SNAPSHOT_SECTIONS, lines: SNAPSHOT_SCRIPT.split("\n").filter((l) => !l.startsWith("echo '@@skiff:end'")) })));
 
     app.post("/api/memory/notice-seen", { preHandler: auth }, async (req, reply) => {
       const db = app.skiffDb.raw;
