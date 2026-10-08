@@ -132,3 +132,49 @@
   color: var(--fg-0);
 }
 .memrow__warn { color: var(--status-connecting); border-color: color-mix(in oklab, var(--status-connecting) 40%, var(--border-strong)); }
+
+/* ── File changes ───────────────────────────────────────────── */
+.memfile__counts { font-family: var(--font-mono); font-size: var(--t-xs); white-space: nowrap; }
+.memfile__plus { color: var(--status-connected); }
+.memfile__minus { color: var(--status-error); }
+.memfile__diff {
+  margin: 0 0 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: var(--lh-normal);
+  white-space: pre;
+}
+.memfile__line { display: block; padding: 0 10px; min-width: max-content; }
+.memfile__line--add { background: var(--status-connected-bg); color: var(--fg-0); }
+.memfile__line--del { background: color-mix(in oklab, var(--status-error) 14%, transparent); color: var(--fg-0); }
+.memfile__line--hunk { color: var(--fg-2); }
+.memfile__line--ctx { color: var(--fg-1); }
+.memfile__backdrop {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklab, black 55%, transparent);
+  padding: 24px;
+}
+.memfile__modal {
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(900px, 100%); max-height: 100%;
+  padding: 14px 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+}
+.memfile__modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.memfile__modal-path { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--fg-0); overflow-wrap: anywhere; }
+.memfile__full {
+  margin: 0; overflow: auto; flex: 1; min-height: 0;
+  padding: 10px 12px;
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-family: var(--font-mono); font-size: var(--t-xs); line-height: var(--lh-normal);
+  color: var(--fg-0); white-space: pre;
+}

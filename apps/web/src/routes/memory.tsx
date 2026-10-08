@@ -38,6 +38,7 @@ export function MemoryRoute() {
   const [failedOnly, setFailedOnly] = useState(false);
   const [includeOutput, setIncludeOutput] = useState(false);
   const [person, setPerson] = useState("");
+  const [types, setTypes] = useState<"" | "commands" | "files">("");
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 250);
     return () => clearTimeout(t);
@@ -55,7 +56,7 @@ export function MemoryRoute() {
   );
 
   const results = useInfiniteQuery({
-    queryKey: ["memory-page", debounced, hostId, range, failedOnly, includeOutput, person],
+    queryKey: ["memory-page", debounced, hostId, range, failedOnly, includeOutput, person, types],
     initialPageParam: null as Cursor | null,
     staleTime: 0,
     queryFn: ({ pageParam }) => {
@@ -67,6 +68,7 @@ export function MemoryRoute() {
       if (since) p.set("since", since);
       if (includeOutput) p.set("output", "1");
       if (person) p.set("user", person);
+      if (types) p.set("types", types);
       if (pageParam) { p.set("before", pageParam.before); p.set("beforeId", pageParam.beforeId); }
       return apiGet<{ entries: TimelineEntry[] }>(`/api/memory/search?${p.toString()}`);
     },
@@ -77,7 +79,7 @@ export function MemoryRoute() {
     },
   });
   const entries = results.data?.pages.flatMap((pg) => pg.entries) ?? [];
-  const filtered = debounced !== "" || hostId !== "" || range !== "any" || failedOnly || person !== "";
+  const filtered = debounced !== "" || hostId !== "" || range !== "any" || failedOnly || person !== "" || types !== "";
 
   return (
     <div className="mempage">
@@ -106,6 +108,11 @@ export function MemoryRoute() {
           <select className="mempage__select" aria-label="Host" value={hostId} onChange={(e) => setHostId(e.target.value)}>
             <option value="">All hosts</option>
             {(hosts.data ?? []).map((h) => <option key={h.id} value={h.id}>{h.label || h.hostname}</option>)}
+          </select>
+          <select className="mempage__select" aria-label="Type" value={types} onChange={(e) => setTypes(e.target.value as "" | "commands" | "files")}>
+            <option value="">Commands and files</option>
+            <option value="commands">Commands only</option>
+            <option value="files">File changes only</option>
           </select>
           {isTeamAdmin && (
             <select className="mempage__select" aria-label="Person" value={person} onChange={(e) => setPerson(e.target.value)}>

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiDelete, apiGet } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api";
 import * as I from "@/components/icons";
+import { EntryFooter, useCopyState, writeClipboard } from "@/components/MemoryEntryParts";
+import { FileRow } from "@/components/MemoryFileEntry";
 
 export interface TimelineEntry {
   id: string;
-  kind?: "command" | "pause";
+  kind?: "command" | "pause" | "file";
   by?: string | null;
   hostId?: string | null;
   userId?: string | null;
@@ -18,6 +20,11 @@ export interface TimelineEntry {
   confidence: string | null;
   flags: string[];
   ended: "exited" | "running";
+  /** File changes only (`command` then holds the path). */
+  change?: "created" | "modified" | "deleted";
+  added?: number;
+  removed?: number;
+  note?: string | null;
 }
 
 interface EntryDetail extends TimelineEntry {
@@ -48,6 +55,7 @@ export function MemoryEntryRow({ entry, hostLabel, showUser, onRunAgain }: {
   entry: TimelineEntry; hostLabel?: string; showUser?: boolean; onRunAgain?: (command: string) => void;
 }) {
   if (entry.kind === "pause") return <PauseRow entry={entry} />;
+  if (entry.kind === "file") return <FileRow entry={entry} hostLabel={hostLabel} showUser={showUser} />;
   return <CommandRow entry={entry} hostLabel={hostLabel} showUser={showUser} onRunAgain={onRunAgain} />;
 }
 
@@ -55,30 +63,8 @@ function CommandRow({ entry, hostLabel, showUser, onRunAgain }: {
   entry: TimelineEntry; hostLabel?: string; showUser?: boolean; onRunAgain?: (command: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(entry.command);
-      setCopyState("ok");
-    } catch {
-      setCopyState("fail");
-    }
-    window.setTimeout(() => setCopyState("idle"), 1500);
-  };
-  const queryClient = useQueryClient();
-  const forget = useMutation({
-    mutationFn: () => apiDelete(`/api/memory/entries/${entry.id}`),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["memory-timeline"] }),
-        queryClient.invalidateQueries({ queryKey: ["memory-search"] }),
-        queryClient.invalidateQueries({ queryKey: ["memory-page"] }),
-      ]);
-      // The row is gone by now; drop the cached detail so forgotten text doesn't linger in the browser.
-      queryClient.removeQueries({ queryKey: ["memory-entry", entry.id] });
-    },
-  });
+  const [copyState, setCopyState] = useCopyState();
+  const copy = async () => setCopyState(await writeClipboard(entry.command));
   const detail = useQuery({
     queryKey: ["memory-entry", entry.id],
     queryFn: () => apiGet<EntryDetail>(`/api/memory/entries/${entry.id}`),
@@ -106,34 +92,16 @@ function CommandRow({ entry, hostLabel, showUser, onRunAgain }: {
               <pre className="memdrawer__output">{detail.data.output || "(no output)"}</pre>
             </>
           )}
-          <div className="memdrawer__footer">
-            {!confirming ? (
-              <div className="memdrawer__actions">
-                {onRunAgain && (
-                  <button type="button" className="memdrawer__action" title="Types the command into the terminal — you press Enter" onClick={() => onRunAgain(entry.command)}>
-                    Run again
-                  </button>
-                )}
-                <button type="button" className="memdrawer__action" onClick={copy}>
-                  {copyState === "ok" ? "Copied" : copyState === "fail" ? "Couldn't copy" : "Copy"}
-                </button>
-                <button type="button" className="memdrawer__forget" onClick={() => setConfirming(true)}>
-                  Forget
-                </button>
-              </div>
-            ) : (
-              <div className="memdrawer__confirm">
-                <span>Forget this entry for good?</span>
-                <button type="button" className="memdrawer__forget memdrawer__forget-yes" disabled={forget.isPending} onClick={() => forget.mutate()}>
-                  Yes, forget
-                </button>
-                <button type="button" className="memdrawer__cancel" disabled={forget.isPending} onClick={() => setConfirming(false)}>
-                  Cancel
-                </button>
-              </div>
+          <EntryFooter entryId={entry.id}>
+            {onRunAgain && (
+              <button type="button" className="memdrawer__action" title="Types the command into the terminal — you press Enter" onClick={() => onRunAgain(entry.command)}>
+                Run again
+              </button>
             )}
-            {forget.isError && <div className="memdrawer__err">Couldn't forget it.</div>}
-          </div>
+            <button type="button" className="memdrawer__action" onClick={copy}>
+              {copyState === "ok" ? "Copied" : copyState === "fail" ? "Couldn't copy" : "Copy"}
+            </button>
+          </EntryFooter>
         </div>
       )}
     </div>
