@@ -113,4 +113,22 @@
   background: var(--bg-2);
 }
 .memrow__host { color: var(--accent-400); }
+.precise-lines { margin-top: 8px; font-size: var(--t-xs); color: var(--fg-1); }
+.precise-lines summary { cursor: pointer; color: var(--accent-400); }
+.precise-lines__note { padding: 6px 0; color: var(--fg-2); }
+.precise-lines__shell { margin-top: 8px; font-weight: 600; color: var(--fg-0); }
+.precise-lines__code {
+  margin: 4px 0 0;
+  padding: 8px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--fg-0);
+}
 .memrow__warn { color: var(--status-connecting); border-color: color-mix(in oklab, var(--status-connecting) 40%, var(--border-strong)); }

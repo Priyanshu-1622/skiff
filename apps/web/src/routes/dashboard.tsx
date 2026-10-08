@@ -592,6 +592,14 @@ function HostDialog({
   const canChangeMemory = isVaultOwner(status);
   const rememberWas = existing?.memory_mode !== "off";
   const [remember, setRemember] = useState(rememberWas);
+  const preciseWas = !!existing?.precise_mode;
+  const [precise, setPrecise] = useState(preciseWas);
+  const [showLines, setShowLines] = useState(false);
+  const snippets = useQuery({
+    queryKey: ["memory-precise-snippets"],
+    queryFn: () => apiGet<Record<"bash" | "zsh" | "fish", string>>("/api/memory/precise-snippets"),
+    enabled: showLines,
+  });
 
   // Hostname validation: non-empty, reasonable chars
   const validate = () => {
@@ -637,8 +645,11 @@ function HostDialog({
         await apiPost("/api/hosts", payload);
       } else {
         await apiPut(`/api/hosts/${existing.id}`, payload);
-        if (canChangeMemory && remember !== rememberWas) {
-          await apiPut(`/api/hosts/${existing.id}/memory`, { memoryMode: remember ? "on" : "off" });
+        const memoryChange: { memoryMode?: "on" | "off"; preciseMode?: boolean } = {};
+        if (remember !== rememberWas) memoryChange.memoryMode = remember ? "on" : "off";
+        if (precise !== preciseWas) memoryChange.preciseMode = precise;
+        if (canChangeMemory && Object.keys(memoryChange).length > 0) {
+          await apiPut(`/api/hosts/${existing.id}/memory`, memoryChange);
         }
       }
       onClose(true);
@@ -787,6 +798,40 @@ function HostDialog({
                     : "Only an admin can change this."}
                 </span>
               </div>
+            </div>
+          )}
+          {mode === "edit" && remember && (
+            <div className="field">
+              <label>Precise mode</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={precise}
+                  aria-label="Precise mode"
+                  className={"s-toggle" + (precise ? " s-toggle--on" : "")}
+                  disabled={!canChangeMemory}
+                  onClick={() => setPrecise((p) => !p)}
+                >
+                  <span className="s-toggle__knob" />
+                </button>
+                <span style={{ fontSize: 12, color: "var(--fg-2)" }}>
+                  {canChangeMemory
+                    ? "Skiff types one line into your shell when you connect so it can see exact commands and exit codes. Works with bash, zsh and fish."
+                    : "Only an admin can change this."}
+                </span>
+              </div>
+              <details className="precise-lines" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) setShowLines(true); }}>
+                <summary>See the exact lines</summary>
+                {snippets.isError && <div className="precise-lines__note">Couldn't load them.</div>}
+                {!snippets.data && !snippets.isError && <div className="precise-lines__note">Loading…</div>}
+                {snippets.data && (["bash", "zsh", "fish"] as const).map((sh) => (
+                  <div key={sh}>
+                    <div className="precise-lines__shell">{sh}</div>
+                    <pre className="precise-lines__code">{snippets.data[sh]}</pre>
+                  </div>
+                ))}
+              </details>
             </div>
           )}
           {errors.form && <div className="field-error">{errors.form}</div>}

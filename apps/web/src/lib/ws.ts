@@ -1,5 +1,5 @@
 export interface TerminalMessage {
-  type: "data" | "status" | "error" | "fingerprint_new" | "fingerprint_mismatch" | "pong" | "memory";
+  type: "data" | "status" | "error" | "fingerprint_new" | "fingerprint_mismatch" | "pong" | "memory" | "memory_note";
   /** For type "memory": what Memory is doing for this session. */
   state?: "remembering" | "paused" | "off" | "unavailable";
   data?: string;

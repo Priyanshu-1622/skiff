@@ -278,6 +278,9 @@ export function TerminalRoute() {
           case "memory":
             setMemoryState(msg.state ?? null);
             break;
+          case "memory_note":
+            if (msg.message) toast.info("Precise mode", { description: msg.message });
+            break;
           case "data":
             term.write(Uint8Array.from(atob(msg.data!), c => c.charCodeAt(0)));
             break;
