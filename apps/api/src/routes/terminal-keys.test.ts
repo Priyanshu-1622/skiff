@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { buildApp } from "../app.js";
 import { runColumnMigrations } from "../db/client.js";
+import { generateEd25519 } from "../test-support/ssh-keys.js";
 
 const require = createRequire(import.meta.url);
 const { Server, utils } = require("ssh2");
@@ -28,7 +29,7 @@ function memDb() {
 }
 
 test("a session gets a wrapped data key and its host is linked to a server", async () => {
-  const sshd = new Server({ hostKeys: [utils.generateKeyPairSync("ed25519").private] }, (c: any) => {
+  const sshd = new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
       const s = acc();
@@ -88,7 +89,7 @@ test("a session gets a wrapped data key and its host is linked to a server", asy
 
 test("when the server refuses a shell, the SSH connection is closed, not leaked", async () => {
   let clientClosed = false;
-  const sshd = new Server({ hostKeys: [utils.generateKeyPairSync("ed25519").private] }, (c: any) => {
+  const sshd = new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
       const s = acc();
@@ -143,7 +144,7 @@ test("a password change while a fingerprint prompt is pending must not permanent
   // can ever unwrap again (the old key-derivation params are gone the moment
   // vault_meta is overwritten), and every future password change then hits
   // that poisoned row and fails.
-  const sshd = new Server({ hostKeys: [utils.generateKeyPairSync("ed25519").private] }, (c: any) => {
+  const sshd = new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
       const s = acc();
@@ -224,7 +225,7 @@ test("a password change while a fingerprint prompt is pending must not permanent
 });
 
 test("if recording is on but the vault key went stale mid-connect, no recording is written — never a silent plaintext fallback", async () => {
-  const sshd = new Server({ hostKeys: [utils.generateKeyPairSync("ed25519").private] }, (c: any) => {
+  const sshd = new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
       const s = acc();

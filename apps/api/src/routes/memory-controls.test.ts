@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { buildApp } from "../app.js";
 import { runColumnMigrations } from "../db/client.js";
+import { generateEd25519 } from "../test-support/ssh-keys.js";
 
 const require = createRequire(import.meta.url);
 const { Server, utils } = require("ssh2");
@@ -133,7 +134,7 @@ test("team mode: a member cannot change memory settings, an admin can, and the a
 // Same fake shell as terminal-memory.test.ts: echoes input, answers "whoami"
 // with a distinct output line, redraws the prompt.
 function fakeSshdWithShell() {
-  return new Server({ hostKeys: [utils.generateKeyPairSync("ed25519").private] }, (c: any) => {
+  return new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
       const s = acc();

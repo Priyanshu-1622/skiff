@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { buildApp } from "../app.js";
 import type { SkiffDb } from "../db/client.js";
 import { runColumnMigrations } from "../db/client.js";
+import { generateEd25519 } from "../test-support/ssh-keys.js";
 
 const require = createRequire(import.meta.url);
 const { utils } = require("ssh2");
@@ -60,7 +61,7 @@ const hostBody = (credential?: object, extra: object = {}) => ({
 test("an encrypted private key needs its passphrase, and the right one", async () => {
   const { app, cookie } = await personal();
   try {
-    const key = utils.generateKeyPairSync("ed25519", { passphrase: "open-sesame", cipher: "aes256-cbc" }).private;
+    const key = generateEd25519(utils, { passphrase: "open-sesame", cipher: "aes256-cbc" }).private;
     const post = (credential: object) => app.inject({ method: "POST", url: "/api/hosts", headers: { cookie }, payload: hostBody(credential) });
 
     const noPass = await post({ kind: "key", value: key });
@@ -80,7 +81,7 @@ test("an encrypted private key needs its passphrase, and the right one", async (
 test("public keys and garbage are rejected with a useful message; plain keys work", async () => {
   const { app, cookie } = await personal();
   try {
-    const pair = utils.generateKeyPairSync("ed25519");
+    const pair = generateEd25519(utils);
     const post = (credential: object) => app.inject({ method: "POST", url: "/api/hosts", headers: { cookie }, payload: hostBody(credential) });
 
     const pub = await post({ kind: "key", value: pair.public });

@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { buildApp } from "../app.js";
 import { runColumnMigrations } from "../db/client.js";
 import { loadCommandEntry } from "../lib/memory/store.js";
+import { generateEd25519 } from "../test-support/ssh-keys.js";
 
 const require = createRequire(import.meta.url);
 const { Server, utils } = require("ssh2");
@@ -32,7 +33,7 @@ function memDb() {
 // output distinguishable from the echo, then redraws the prompt — enough
 // for CaptureEngine's screen-mode heuristic to read "whoami" back out.
 function fakeSshdWithShell() {
-  return new Server({ hostKeys: [utils.generateKeyPairSync("ed25519").private] }, (c: any) => {
+  return new Server({ hostKeys: [generateEd25519(utils).private] }, (c: any) => {
     c.on("authentication", (ctx: any) => (ctx.method === "password" && ctx.password === "pw" ? ctx.accept() : ctx.reject()));
     c.on("ready", () => c.on("session", (acc: any) => {
       const s = acc();
