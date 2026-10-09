@@ -195,6 +195,20 @@ same host, picked back up where it was.</sub>
   format and replay it later from the Recordings page. On by default in team
   mode (admins can review any member's sessions), off by default for personal
   use. Toggle it in Settings.
+- **Memory.** Skiff remembers what happened on your servers, with nothing
+  installed on them. Every command you run in a Skiff session is saved
+  (encrypted) with its output, searchable per host from the terminal's History
+  drawer and across all hosts from the Memory page. When a command edits a
+  file (an editor, `sed -i`, `tee`, a redirect, `cp`/`mv`), Skiff reads the file
+  over SFTP before and after and keeps the diff plus both versions. Optional
+  extras, each switched on per host: **Precise mode** (exact commands and exit
+  codes for bash, zsh and fish), and **Server snapshots** (a short read-only
+  check at connect that flags changes nobody made through Skiff). Each host
+  also gets a living **note** (Pin any entry to it) and there is a **snippet**
+  library (Run types a command into the terminal; you press Enter). You can
+  pause Memory in a session, turn it off per host or for the whole vault, and
+  Forget any entry. See [SECURITY.md](SECURITY.md#memory) for exactly what is
+  stored and how.
 - **Encrypted credential vault.** AES-256-GCM at rest, key derived from your
   master password with argon2id (OWASP params). The key lives in memory while
   you're unlocked and gets zeroed on lock or idle timeout. The password itself
@@ -272,6 +286,7 @@ It's a pnpm workspace with two apps and one shared types package. The frontend a
 These are real things I've noticed using Skiff. Some are easy fixes I haven't gotten to; some need a redesign.
 
 - **Import doesn't follow `Include` directives**, and skips `Match` blocks and wildcard `Host` patterns (they don't describe a single host). Paste included files separately. Imported hosts have no password or key yet — `~/.ssh/config` only names key files — so add one before connecting.
+- **Memory is best-effort, not an audit trail.** Capture works from what the terminal shows, so full-screen programs (vim, htop) are noted but not captured, commands typed inside a nested shell or `ssh` aren't seen individually, and zsh/fish Precise mode has had less real-world testing than bash. Redaction of secrets in remembered text is pattern-based and can miss things. Changes made to files by anything other than a command Skiff saw are only noticed at the next session start.
 - **A server restart ends live SSH sessions.** Sessions survive closed tabs, locks and network drops, but they live in the server process.
 - **No folder reordering.** You can create folders and delete them, but you can't drag to reorder or nest existing ones. Plan the hierarchy before you create them, or be prepared to delete and re-create.
 - **Restore is fresh-instance only.** Settings - Backup downloads an encrypted JSON, and a fresh instance can restore it from the setup screen ("Restore from a backup file"). You can't restore *over* an existing vault though — you'd have to start from a clean `data/` directory. Good enough for moving between machines; not an in-place "undo".
@@ -284,7 +299,7 @@ These are real things I've noticed using Skiff. Some are easy fixes I haven't go
 If you need any of these, Skiff isn't the right tool yet:
 
 - Role-based access control. Team mode shares one vault — every member can see and connect to every host. No per-host permissions, no read-only role.
-- SFTP / file transfers. SSH sessions only.
+- SFTP / file transfers. SSH sessions only. (Memory reads small text files over SFTP to show what an edit changed, but there is no file browser or upload/download.)
 - Bastion / jump host chains. Direct connections only.
 - Mobile-optimized terminal. The dashboard works on phones but the terminal really wants a keyboard.
 - LDAP / SAML / SSO. Team mode uses Skiff's own user accounts, not an external identity provider.

@@ -42,6 +42,34 @@ vault key --AES-256-GCM--> each credential, stored as (nonce, ciphertext)
 
 **Session recordings are encrypted.** Every live SSH session gets its own random 32-byte key, sealed under your vault key (or the team's shared key) the same way credentials are. When recording is on, the session's output is written to `data/recordings/*.cast.enc` in AES-256-GCM chunks under that key — not in plain text. That includes everything displayed on screen: file contents you `cat`, tokens a command prints, and so on (not passwords typed at a hidden prompt, since those aren't echoed). Decrypting a recording for playback requires an unlocked vault. A session's key is kept in memory for its lifetime — including after the vault locks, which is what lets a long-running recording keep being written securely while you're locked out — and is zeroed when the session ends. Password changes and backup/restore carry these keys forward, so existing recordings stay playable. Recordings made before this (an older Skiff) are stored as plain `.cast` files and still play; treat any such files as sensitive on disk, same as before.
 
+## Memory
+
+Memory records what happens in your Skiff SSH sessions so you can search it later. It is agentless: nothing is installed on your servers, and everything is read from the terminal stream Skiff already carries (plus, for file changes, an SFTP read over the same SSH connection). It can be paused per session, turned off per host or vault-wide (Settings → Memory), and any entry can be Forgotten. The first time it is used, Skiff shows a notice explaining this.
+
+**What is stored, and how**
+
+- **Commands and their output** (the first and last 32 KB of each command's output) are sealed with AES-256-GCM under the session's own random key — the same per-session key used for recordings, itself sealed under the vault (or team shared) key. Paths, command text, working directory and output are inside the ciphertext. Only ids, timestamps, exit codes, flags and sizes are plain columns, so entries can be sorted without decrypting.
+- **Redaction is best-effort.** Before saving, Skiff masks common secret patterns (`--password …`, `NAME_PASSWORD=`/`TOKEN=`/`SECRET=`/`API_KEY=` style assignments, `Authorization: Bearer …`, AWS/GitHub/Slack/Stripe-style keys, JWTs, PEM key blocks, and mysql-style `-p<password>`). This is pattern matching: it will miss things, and it is not a substitute for not printing secrets. Treat remembered output like a recording.
+- **Passwords typed at a hidden prompt are never captured** (they are not echoed). Full-screen programs (vim, less, htop) are marked "full-screen · not captured".
+- **Search** uses an in-memory index built for your login from entries you can see. It never touches disk and is dropped when you lock or your login ends. Searching output is opt-in per query.
+- **Retention:** command output is removed after the configured number of days (default 90); the command, exit code and time stay. Diffs are removed the same way. **Forget** deletes an entry and any file versions nothing else uses. Forget does **not** remove session recordings or the live scrollback — delete a recording from the Recordings page if it holds the same text.
+- **Team mode:** a member sees only their own entries; an admin sees everyone's. Members can pause Memory (the gap is visible in the timeline) but cannot turn it off for a host. Forgetting follows the same visibility rule. Audit rows for Memory actions hold metadata only.
+
+**File changes**
+
+- Only regular text files up to 256 KB, valid UTF-8. Binary, larger, unreadable and key-like files (a PEM private key anywhere in the content, or `/etc/shadow`-style paths) leave a note and **no content**.
+- The **diff** shown in History is passed through the redactor line by line. The **full old and new versions** are stored exactly as read — **not redacted** — sealed with AES-256-GCM under a per-server *file key* (itself sealed under the vault key; it is not a session key so later sessions can read earlier versions). They are shown only when you click View full file or Copy old version.
+- File paths are never stored in the clear: watched paths are keyed by an HMAC under the file key, and the real path lives only in sealed columns. Skiff keeps a list of watched files per server so that the next session can tell you if a file changed outside Skiff.
+- Reading happens over SFTP on the session's own connection, lazily, with a 5 s limit per operation, and never blocks the terminal. A server without SFTP simply gets no file tracking.
+
+**Precise mode (opt-in per host)** types one visible-to-the-shell, hidden-from-your-screen setup line when you connect, so the shell reports exact commands and exit codes (OSC 133). It supports bash, zsh and fish; other shells are left alone. The exact lines are shown in the host dialog before you switch it on. It changes your shell's prompt hook for that session only.
+
+**Server snapshots (opt-in per host)** run a fixed, read-only list of commands on a *separate* exec channel when a session starts (10 s total limit): OS release, kernel, installed packages, enabled services, listening ports, cron entries, Docker containers if available. The commands are shown in the host dialog. Nothing is written, no network is used, nothing runs with elevated privileges. Each snapshot is sealed under the file key; the five newest are kept. Differences from the previous snapshot that a command Skiff remembered doesn't plausibly explain become "changed outside Skiff" entries (the matching is a keyword heuristic, so it can miss a real change that happened alongside a related command). A failed snapshot is noted once.
+
+**Host notes and snippets** are small documents you write. They are sealed under the vault key itself (so a personal password change re-seals them) and appear in backups, still sealed. In team mode the host note and the snippet library are shared; only a snippet's author or an admin can change it. "Pin to notes" copies a command (never its output) or a file change's redacted diff into the note.
+
+**Backups** include watched-file lists, stored versions, snapshots, notes and snippets (all still sealed) but **not** command entries or recordings.
+
 ## Team mode — how encryption works
 
 Team mode lets several people share one vault, each with their own login, without anyone's password being shared.
@@ -93,7 +121,7 @@ The first connection to a server shows its SHA-256 host key fingerprint — the 
 
 ## Backups
 
-A backup (Settings → Backup) contains the encrypted credentials, the KDF parameters and verifier, and — for team vaults — every member's sealed copy of the shared key. Nothing in it is readable without a password. It restores only onto a fresh instance: personal backups unlock with the original master password, team backups let every member sign in with their own. Recordings are not included.
+A backup (Settings → Backup) contains the encrypted credentials, the KDF parameters and verifier, and — for team vaults — every member's sealed copy of the shared key. Nothing in it is readable without a password. It restores only onto a fresh instance: personal backups unlock with the original master password, team backups let every member sign in with their own. Recordings and remembered commands are not included. The watched-file list, stored file versions, server snapshots, host notes and snippets are included, still sealed.
 
 ## Forgotten passwords
 
@@ -126,6 +154,9 @@ Skiff is only as safe as how you run it:
 | Password verification | HMAC-SHA-256 verifier (no password stored) |
 | Session key storage | in-memory only, zeroed on lock/idle; per-request copies zeroed after each response |
 | Recording encryption | AES-256-GCM chunks under a per-SSH-session key, itself sealed under the vault/shared key |
+| Memory entries | AES-256-GCM under the same per-session key (AAD binds each entry to its id) |
+| File versions, snapshots | AES-256-GCM under a per-server file key sealed under the vault/shared key; content ids and path lookups are HMAC-SHA-256 under that file key |
+| Host notes, snippets | AES-256-GCM directly under the vault/shared key (AAD binds each to its host/id) |
 | Verifier comparison | constant-time |
 | Host key fingerprint | SHA-256 of the host key (OpenSSH format) |
 
