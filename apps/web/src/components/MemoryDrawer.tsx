@@ -5,6 +5,10 @@ import { apiGet } from "@/lib/api";
 import { getStored, setStored } from "@/lib/safe-storage";
 import * as I from "@/components/icons";
 import { MemoryEntryRow as EntryRow, type TimelineEntry } from "@/components/MemoryEntry";
+import { MemoryNotes } from "@/components/MemoryNotes";
+import { MemorySnippets } from "@/components/MemorySnippets";
+
+type Tab = "history" | "notes" | "snippets";
 
 const WIDTH_KEY = "skiff.memdrawer.width";
 const MIN_WIDTH = 280;
@@ -35,6 +39,7 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
   };
+  const [tab, setTab] = useState<Tab>("history");
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [includeOutput, setIncludeOutput] = useState(false);
@@ -47,8 +52,8 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
   const timeline = useQuery({
     queryKey: ["memory-timeline", hostId],
     queryFn: () => apiGet<{ entries: TimelineEntry[] }>(`/api/memory/hosts/${hostId}/timeline`),
-    enabled: open && !searching,
-    refetchInterval: open && !searching ? 5000 : false,
+    enabled: open && !searching && tab === "history",
+    refetchInterval: open && !searching && tab === "history" ? 5000 : false,
     staleTime: 0, // History must be current whenever it is opened, not the app-wide 30 s
   });
   const results = useQuery({
@@ -58,7 +63,7 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
       if (includeOutput) params.set("output", "1");
       return apiGet<{ entries: TimelineEntry[] }>(`/api/memory/search?${params.toString()}`);
     },
-    enabled: open && searching,
+    enabled: open && searching && tab === "history",
     staleTime: 0,
   });
 
@@ -75,7 +80,16 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
           <I.Close size={12} />
         </button>
       </div>
-      <div className="memdrawer__searchbar">
+      <div className="memdrawer__tabs" role="tablist">
+        {([["history", "History"], ["notes", "Notes"], ["snippets", "Snippets"]] as const).map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={"memdrawer__tab" + (tab === id ? " memdrawer__tab--on" : "")} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "notes" && <div className="memdrawer__list"><MemoryNotes hostId={hostId} /></div>}
+      {tab === "snippets" && <div className="memdrawer__list"><MemorySnippets onRun={onRunAgain} /></div>}
+      {tab === "history" && <div className="memdrawer__searchbar">
         <input
           className="memdrawer__search"
           type="search"
@@ -88,8 +102,8 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
           <input type="checkbox" checked={includeOutput} onChange={(e) => setIncludeOutput(e.target.checked)} />
           Search output too
         </label>
-      </div>
-      <div className="memdrawer__list">
+      </div>}
+      {tab === "history" && <div className="memdrawer__list">
         {searching ? (
           <>
             {results.isLoading && <div className="memdrawer__muted">Searching…</div>}
@@ -112,7 +126,7 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
             ))}
           </>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

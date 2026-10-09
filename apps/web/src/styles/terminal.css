@@ -1117,3 +1117,32 @@
 }
 .memdrawer__pause-time { color: var(--fg-2); font-family: var(--font-mono); }
 .memdrawer__muted { padding: 16px 12px; font-size: var(--t-sm); color: var(--fg-2); }
+
+/* ── Drawer tabs, notes, snippets ───────────────────────────── */
+.memdrawer__tabs { display: flex; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--border); }
+.memdrawer__tab {
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 6px 10px; font-size: var(--t-sm); color: var(--fg-2); cursor: pointer;
+}
+.memdrawer__tab:hover { color: var(--fg-0); }
+.memdrawer__tab--on { color: var(--fg-0); border-bottom-color: var(--accent-500); }
+.memnotes { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; height: 100%; box-sizing: border-box; }
+.memnotes__text {
+  flex: 1; min-height: 200px; resize: none; box-sizing: border-box; width: 100%;
+  padding: 8px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--fg-0); font-family: var(--font-mono); font-size: var(--t-sm); line-height: var(--lh-normal);
+}
+.memnotes__text:focus { outline: none; border-color: var(--border-focus); }
+.memnotes__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.memnotes__meta { padding: 0; }
+.memnotes__conflict { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--status-connecting); border-radius: var(--r-sm); background: var(--status-connecting-bg); font-size: var(--t-xs); color: var(--fg-0); }
+.memsnips { display: flex; flex-direction: column; }
+.memsnip { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.memsnip__name { display: flex; align-items: center; gap: 8px; font-size: var(--t-sm); color: var(--fg-0); font-weight: 600; }
+.memsnip__cmd { margin: 0; padding: 6px 8px; background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--t-xs); color: var(--fg-1); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.memsnip__cmd-input {
+  min-height: 56px; resize: vertical; box-sizing: border-box; width: 100%; padding: 6px 8px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--fg-0); font-family: var(--font-mono); font-size: var(--t-xs);
+}
+.memsnip__cmd-input:focus { outline: none; border-color: var(--border-focus); }

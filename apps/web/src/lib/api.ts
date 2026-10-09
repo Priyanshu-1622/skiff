@@ -5,6 +5,8 @@ export class ApiError extends Error {
     public code: ApiErrorCode | string,
     message: string,
     public httpStatus: number,
+    /** Extra detail some errors carry (a 409 on a note carries the current note). */
+    public extra?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -23,7 +25,7 @@ async function handleResponse<T>(res: Response, path: string): Promise<T> {
     if (body.error.code === "VAULT_LOCKED" && !path.includes("/vault/")) {
       window.location.href = "/unlock";
     }
-    throw new ApiError(body.error.code, body.error.message, res.status);
+    throw new ApiError(body.error.code, body.error.message, res.status, (body.error as { current?: unknown }).current);
   }
   return body.data;
 }

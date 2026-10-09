@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiDelete } from "@/lib/api";
+import { apiDelete, apiPost } from "@/lib/api";
 
 /** "Copied" / "Couldn't copy" feedback that resets itself. */
 export function useCopyState() {
@@ -59,5 +59,33 @@ export function EntryFooter({ entryId, children }: { entryId: string; children?:
       )}
       {forget.isError && <div className="memdrawer__err">Couldn't forget it.</div>}
     </div>
+  );
+}
+
+/** "Pin to notes": append this entry to its host's note. */
+export function PinAction({ entryId }: { entryId: string }) {
+  const queryClient = useQueryClient();
+  const pin = useMutation({
+    mutationFn: () => apiPost<{ hostId: string }>(`/api/memory/entries/${entryId}/pin`),
+    onSuccess: (r) => queryClient.invalidateQueries({ queryKey: ["host-note", r.hostId] }),
+  });
+  return (
+    <button type="button" className="memdrawer__action" disabled={pin.isPending || pin.isSuccess} title="Adds this to the host's notes" onClick={() => pin.mutate()}>
+      {pin.isSuccess ? "Pinned" : pin.isError ? "Couldn't pin" : "Pin to notes"}
+    </button>
+  );
+}
+
+/** "Save as snippet": stores the command in the library (rename it from the Snippets tab). */
+export function SaveSnippetAction({ command }: { command: string }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: () => apiPost("/api/snippets", { name: command.replace(/\s+/g, " ").slice(0, 60), command: command.slice(0, 4000) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["snippets"] }),
+  });
+  return (
+    <button type="button" className="memdrawer__action" disabled={save.isPending || save.isSuccess} onClick={() => save.mutate()}>
+      {save.isSuccess ? "Saved to Snippets" : save.isError ? "Couldn't save" : "Save as snippet"}
+    </button>
   );
 }

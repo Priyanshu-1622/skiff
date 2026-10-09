@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import * as I from "@/components/icons";
-import { EntryFooter, useCopyState, writeClipboard } from "@/components/MemoryEntryParts";
+import { EntryFooter, PinAction, SaveSnippetAction, useCopyState, writeClipboard } from "@/components/MemoryEntryParts";
 import { FileRow } from "@/components/MemoryFileEntry";
 
 export interface TimelineEntry {
@@ -101,6 +101,8 @@ function CommandRow({ entry, hostLabel, showUser, onRunAgain }: {
             <button type="button" className="memdrawer__action" onClick={copy}>
               {copyState === "ok" ? "Copied" : copyState === "fail" ? "Couldn't copy" : "Copy"}
             </button>
+            <SaveSnippetAction command={entry.command} />
+            <PinAction entryId={entry.id} />
           </EntryFooter>
         </div>
       )}

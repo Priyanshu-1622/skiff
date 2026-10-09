@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import * as I from "@/components/icons";
-import { EntryFooter, useCopyState, writeClipboard } from "@/components/MemoryEntryParts";
+import { EntryFooter, PinAction, useCopyState, writeClipboard } from "@/components/MemoryEntryParts";
 import type { TimelineEntry } from "@/components/MemoryEntry";
 
 interface FileDetail {
@@ -112,6 +112,7 @@ export function FileRow({ entry, hostLabel, showUser }: { entry: TimelineEntry; 
                 {copyState === "ok" ? "Copied" : copyState === "fail" ? "Couldn't copy" : "Copy old version"}
               </button>
             )}
+            <PinAction entryId={entry.id} />
           </EntryFooter>
           {showFull && <FileVersionModal entryId={entry.id} path={entry.command} onClose={() => setShowFull(false)} />}
         </div>
