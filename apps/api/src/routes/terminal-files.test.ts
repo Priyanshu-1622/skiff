@@ -568,3 +568,69 @@ test("a backup carries snapshots and the per-host switches, and a restore brings
     await app2.close();
   } finally { await s.close(); }
 });
+
+// ── Pin to notes ─────────────────────────────────────────────────────────────
+
+const pin = (s: Awaited<ReturnType<typeof setup>>, id: string, cookie = s.cookie) =>
+  s.app.inject({ method: "POST", url: `/api/memory/entries/${id}/pin`, headers: { cookie } });
+const noteOf = async (s: Awaited<ReturnType<typeof setup>>, cookie = s.cookie) =>
+  ((await get(s, `/api/hosts/${s.hostId}/notes`, cookie)).json() as any).data;
+
+test("pinning a command adds it to the host's note without its output; pinning a file change adds the path and diff", async () => {
+  const s = await setup();
+  try {
+    s.files.set("/srv/app.conf", Buffer.from("port = 80\n"));
+    await s.session(async (t) => {
+      await t.type("whoami\n", 900);
+      await t.type("vim /srv/app.conf\n");
+    });
+    const entries = await timeline(s);
+    const cmd = entries.find((e) => e.kind === "command" && e.command === "whoami");
+    const file = entries.find((e) => e.kind === "file");
+    const first = (await pin(s, cmd.id)).json() as any;
+    assert.equal(first.ok, true);
+    assert.equal(first.data.hostId, s.hostId);
+    assert.equal(first.data.version, 1);
+    assert.match(first.data.text, /^\$ whoami\n  \d{4}-\d\d-\d\d \d\d:\d\d UTC/);
+    assert.ok(!first.data.text.includes("fakeuser"), "the command's output is never pinned");
+    const second = (await pin(s, file.id)).json() as any;
+    assert.equal(second.data.version, 2);
+    const note = await noteOf(s);
+    assert.match(note.text, /\n\n✎ \/srv\/app\.conf \(modified, \+1 −0\)\n/);
+    assert.match(note.text, /\n    \+edited/);
+    assert.equal((await pin(s, "nope")).statusCode, 404);
+    assert.equal((await s.app.inject({ method: "POST", url: `/api/memory/entries/${cmd.id}/pin` })).statusCode, 401);
+  } finally { await s.close(); }
+});
+
+test("team: a member can pin only their own entries", async () => {
+  const fake = fakeServer();
+  await new Promise<void>((r) => fake.server.listen(0, "127.0.0.1", r));
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const base = `127.0.0.1:${(app.server.address() as any).port}`;
+  try {
+    const adminCookie = cookieFrom(await app.inject({ method: "POST", url: "/api/vault/setup", payload: { password: "admin-password-1", mode: "team", username: "admin" } }));
+    const login = async (username: string) => {
+      await app.inject({ method: "POST", url: "/api/team/users", headers: { cookie: adminCookie }, payload: { username, tempPassword: `${username}-temp-password`, isAdmin: false } });
+      return cookieFrom(await app.inject({ method: "POST", url: "/api/team/login", payload: { username, password: `${username}-temp-password` } }));
+    };
+    const hostId = ((await app.inject({
+      method: "POST", url: "/api/hosts", headers: { cookie: adminCookie },
+      payload: { label: "t", hostname: "127.0.0.1", port: fake.server.address().port, username: "u", authMethod: "password", credential: { kind: "password", value: "pw" } },
+    })).json() as any).data.id as string;
+    const bob = await login("bob");
+    const carol = await login("carol");
+    const t = await openTerminal(hostId, base, bob);
+    await t.waitFor(connected);
+    await t.waitFor(memState("remembering"));
+    await t.type("whoami\n", 900);
+    await t.end();
+    const entry = (((await app.inject({ method: "GET", url: `/api/memory/hosts/${hostId}/timeline`, headers: { cookie: bob } })).json() as any).data.entries as any[]).find((e) => e.command === "whoami");
+    const doPin = (cookie: string) => app.inject({ method: "POST", url: `/api/memory/entries/${entry.id}/pin`, headers: { cookie } });
+    assert.equal((await doPin(carol)).statusCode, 404);
+    assert.equal((await doPin(bob)).statusCode, 200);
+    assert.equal((await doPin(adminCookie)).statusCode, 200);
+  } finally { await app.close(); fake.server.close(); }
+});

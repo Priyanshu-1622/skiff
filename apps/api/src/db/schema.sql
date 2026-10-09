@@ -290,6 +290,25 @@ CREATE TABLE IF NOT EXISTS server_files (
   PRIMARY KEY (server_id, path_hash)
 );
 
+-- Phase D: a living note per host, and a snippet library. Both are sealed under
+-- the vault key (AAD host-note:<id> / snippet:<id>); user_id is plain so the
+-- author can be checked without opening the row.
+CREATE TABLE IF NOT EXISTS host_notes (
+  host_id TEXT PRIMARY KEY REFERENCES hosts(id) ON DELETE CASCADE,
+  nonce BLOB NOT NULL,
+  data BLOB NOT NULL,
+  version INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS snippets (
+  id TEXT PRIMARY KEY,
+  nonce BLOB NOT NULL,
+  data BLOB NOT NULL,
+  user_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- Server snapshots (opt-in per host), sealed under the server's file key.
 CREATE TABLE IF NOT EXISTS server_snapshots (
   id TEXT PRIMARY KEY,

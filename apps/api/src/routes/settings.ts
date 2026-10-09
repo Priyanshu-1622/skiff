@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { rewrapDocs } from "../lib/memory/vault-docs.js";
 import { z } from "zod";
 import { deriveVaultKey, computeVerifier, generateKdfParams, encrypt, decrypt, verifierMatches } from "../crypto/vault.js";
 import { provisionUser } from "../crypto/team-vault.js";
@@ -81,6 +82,8 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           dataKey.fill(0);
           updateSessionKey.run(wrapped, nonce, row.id);
         }
+        // Notes and snippets are sealed under the vault key itself.
+        rewrapDocs(db, currentKey, newKey);
         for (const row of serverRows) {
           const fileKey = unwrapDataKey(Buffer.from(row.file_key_wrapped), Buffer.from(row.file_key_nonce), currentKey);
           const { nonce, wrapped } = wrapDataKey(fileKey, newKey);
@@ -180,6 +183,16 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         path_nonce: Buffer.from(f.path_nonce).toString("base64"),
         path_data: Buffer.from(f.path_data).toString("base64"),
       }));
+      const hostNotes = (db.prepare("SELECT * FROM host_notes").all() as any[]).map((f) => ({
+        ...f,
+        nonce: Buffer.from(f.nonce).toString("base64"),
+        data: Buffer.from(f.data).toString("base64"),
+      }));
+      const snippets = (db.prepare("SELECT * FROM snippets").all() as any[]).map((f) => ({
+        ...f,
+        nonce: Buffer.from(f.nonce).toString("base64"),
+        data: Buffer.from(f.data).toString("base64"),
+      }));
       const serverSnapshots = (db.prepare("SELECT * FROM server_snapshots").all() as any[]).map((f) => ({
         ...f,
         nonce: Buffer.from(f.nonce).toString("base64"),
@@ -195,7 +208,7 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         exportedAt: new Date().toISOString(),
         vaultMeta: normalizedMeta,
         users,
-        servers, sessionKeys, serverFiles, fileContents, serverSnapshots,
+        servers, sessionKeys, serverFiles, fileContents, serverSnapshots, hostNotes, snippets,
         folders, hosts,
         credentials: credentials.map((c: any) => ({
           ...c,
@@ -351,6 +364,21 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
           last_content_id: z.string().nullable().optional(),
           updated_at: z.string().optional(),
         })).default([]),
+        hostNotes: z.array(z.object({
+          host_id: z.string().min(1),
+          nonce: b64,
+          data: b64,
+          version: z.number().int().min(1),
+          updated_at: z.string(),
+        })).default([]),
+        snippets: z.array(z.object({
+          id: z.string().min(1),
+          nonce: b64,
+          data: b64,
+          user_id: z.string().nullable().optional(),
+          created_at: z.string(),
+          updated_at: z.string(),
+        })).default([]),
         serverSnapshots: z.array(z.object({
           id: z.string().min(1),
           server_id: z.string().min(1),
@@ -468,6 +496,14 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
             h.precise_mode ? 1 : 0, h.snapshots ? 1 : 0,
             h.created_at ?? new Date().toISOString(), h.last_connected_at ?? null,
           );
+        }
+        for (const n of body.hostNotes) {
+          db.prepare("INSERT INTO host_notes (host_id, nonce, data, version, updated_at) VALUES (?, ?, ?, ?, ?)")
+            .run(n.host_id, Buffer.from(n.nonce, "base64"), Buffer.from(n.data, "base64"), n.version, n.updated_at);
+        }
+        for (const s of body.snippets) {
+          db.prepare("INSERT INTO snippets (id, nonce, data, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .run(s.id, Buffer.from(s.nonce, "base64"), Buffer.from(s.data, "base64"), s.user_id ?? null, s.created_at, s.updated_at);
         }
         for (const k of body.knownHosts) {
           db.prepare("INSERT INTO known_hosts (hostname, port, fingerprint, algorithm, first_seen_at) VALUES (?, ?, ?, ?, ?)")
