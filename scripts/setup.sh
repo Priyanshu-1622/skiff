@@ -27,11 +27,12 @@ echo "✅ pnpm $(pnpm -v) found"
 # Install dependencies
 echo ""
 echo "📦 Installing dependencies (this may take 30-60 seconds)..."
-pnpm install
+pnpm install --frozen-lockfile
 
 # Verify build
 echo ""
 echo "🔨 Verifying build..."
+pnpm --filter @skiff/shared build
 pnpm typecheck
 pnpm build
 

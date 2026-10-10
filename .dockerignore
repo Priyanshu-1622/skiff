@@ -1,0 +1,21 @@
+# Send source and build configuration only; dependencies are installed in-image.
+.git
+**/node_modules
+**/dist
+**/data
+**/*.sqlite*
+**/*.db
+**/*.log
+.env
+.env.*
+!.env.example
+.local-tests
+.local-specs
+.superpowers
+.agents
+.codex
+CLAUDE.md
+DECISIONS.md
+skiff-audit-report.md
+coverage
+**/coverage
