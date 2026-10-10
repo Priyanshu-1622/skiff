@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="338" viewBox="0 0 900 338" role="img" aria-labelledby="title desc"><title id="title">Remember the work. Keep the session.</title><desc id="desc">Illustrated examples of searchable command output, file diffs with both versions, and server-held sessions that survive a closed browser tab.</desc><style>text{font-family:Arial,Helvetica,sans-serif}.mono{font-family:Consolas,Menlo,monospace}.muted{fill:#a4b3c7}.small{font-size:12px}.label{font-size:11px;letter-spacing:1.8px;fill:#9bb5d3}.flow{stroke-dasharray:6 6;animation:flow 3s linear infinite}.pulse{animation:pulse 3s ease-in-out infinite}.focus{animation:focus 8s ease-in-out infinite}@keyframes flow{to{stroke-dashoffset:-48}}@keyframes pulse{50%{opacity:.45}}@keyframes focus{0%,100%{stroke:#315176}50%{stroke:#72b8ff}}@media(prefers-reduced-motion:reduce){.flow,.pulse,.focus{animation:none}}</style>
+<rect x="1" y="1" width="898" height="336" rx="16" fill="#0c121c" stroke="#26364c"/>
+<text x="24" y="33" class="label">REMEMBER THE WORK. KEEP THE SESSION.</text><text x="755" y="33" font-size="10" class="muted">ILLUSTRATED EXAMPLES</text>
+<g><rect x="24" y="53" width="274" height="258" rx="10" fill="#111c2b" stroke="#2b405b"/>
+<text x="42" y="82" class="label" fill="#72b8ff">01 / FIND THE FIX</text>
+<text x="42" y="115" font-size="21" font-weight="700" fill="#eff5ff">Search past work</text>
+<rect x="42" y="133" width="238" height="30" rx="5" fill="#0b131f" stroke="#365c86" class="focus"/><text x="54" y="153" font-size="12" fill="#c6dfff">Search commands + output</text>
+<text x="42" y="189" font-size="12" class="mono" fill="#e0ecff">$ sudo nginx -t</text>
+<text x="42" y="213" font-size="11" class="mono" fill="#64d8ae">test is successful</text>
+<path d="M42 233H280" stroke="#2a3c54"/>
+<text x="42" y="260" font-size="13" class="muted">Across hosts. Back to the output.</text><text x="42" y="282" font-size="13" class="muted">Pin the useful part to host notes.</text></g>
+<g><rect x="313" y="53" width="274" height="258" rx="10" fill="#111c2b" stroke="#2b405b"/>
+<text x="331" y="82" class="label">02 / SEE THE CHANGE</text>
+<text x="331" y="115" font-size="21" font-weight="700" fill="#eff5ff">Keep the file diff</text>
+<text x="331" y="149" font-size="12" class="mono" fill="#b5c9e5">nginx.conf</text>
+<rect x="331" y="162" width="238" height="27" rx="4" fill="#35202b"/><text x="343" y="180" font-size="12" class="mono" fill="#ffb6b6">− worker_processes 1;</text>
+<rect x="331" y="194" width="238" height="27" rx="4" fill="#15372e"/><text x="343" y="212" font-size="12" class="mono" fill="#8be6bd">+ worker_processes auto;</text>
+<path d="M331 233H569" stroke="#2a3c54"/>
+<text x="331" y="260" font-size="13" class="muted">Before and after, kept together.</text><text x="331" y="282" font-size="13" class="muted">Read either version. Copy the old.</text></g>
+<g><rect x="602" y="53" width="274" height="258" rx="10" fill="#111c2b" stroke="#2b405b"/>
+<text x="620" y="82" class="label">03 / PICK UP YOUR SESSION</text>
+<text x="620" y="115" font-size="21" font-weight="700" fill="#eff5ff">Close tab. Come back.</text>
+<rect x="620" y="138" width="94" height="32" rx="5" fill="#0b131f" stroke="#324b69"/><text x="632" y="159" font-size="12" class="muted">Tab closed</text>
+<path d="M721 154H753" stroke="#72b8ff" stroke-width="2" class="flow"/>
+<rect x="759" y="138" width="99" height="32" rx="5" fill="#15372e" stroke="#34725e"/><text x="770" y="159" font-size="12" fill="#8be6bd">Reattached</text>
+<circle cx="626" cy="203" r="4" fill="#64d8ae" class="pulse"/><text x="640" y="207" font-size="12" class="mono" fill="#d9e9ff">SSH stays on your server</text>
+<path d="M620 233H858" stroke="#2a3c54"/>
+<text x="620" y="260" font-size="13" class="muted">Same live process, recent scrollback.</text><text x="620" y="282" font-size="13" class="muted">Within the idle grace period.</text></g>
+</svg>

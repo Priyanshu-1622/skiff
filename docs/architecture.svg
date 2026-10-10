@@ -1,119 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="900" height="380" role="img" aria-label="Skiff architecture: browsers attach and detach from sessions that live in the Skiff server, which holds the SSH connections to your hosts" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTowMjFkYTNjZi0zYTQ2LTQyMjAtOWVlYi1mNjEzN2E2MmRjYTgAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaIdOj9tuqYoaBSPHDxMtY0wAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDowMGNlYzg3YS1lZThiLTRkN2YtYWUyOS0wZGNlNDVlOTNiMWFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoW4+G6dJ9QGsMAJ9L+kR/JwAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg9yQBAhubkLNjg6xES+e+r5Wu3mnYQ8651IOH8QgrR0CkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaBamOHRHPRacV8Hf18+4vzMAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYICEZ563kW6mLHztlkvVqQxOKidFEPPmyGzseUHJnq7VaZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GQE4Zmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjAyMWRhM2NmLTNhNDYtNDIyMC05ZWViLWY2MTM3YTYyZGNhOC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjM3YmM0YzBlLTQ0NmItNDIwOC05OWEyLWVlMzFjNzllNDk5YnJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCD3JAECG5uQs2ODrERL576vla7eadhDzrnUg4fxCCtHQKJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggT44etBAyeKraaBeeh0e2LLVd10HOx+j2Hn/ZWoEMVxeiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggyeddiY3Y0W48FPpQ067F0oDPKNHB/0p90LzIIs/2sgN0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQN+ZD+lqZSRnteBsvHxcWrqx/fM/V4Nmf74LuYyDOyysvBwOFfb88c7csGQrMvOh8w98DctsAC8mLlcd3mfQSGI=</c2pa:manifest></metadata>
-  <defs>
-    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
-      <path d="M0,0 L6.5,3.2 L0,6.4 Z" fill="#5A6472"/>
-    </marker>
-    <marker id="ab" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
-      <path d="M0,0 L6.5,3.2 L0,6.4 Z" fill="#4C8DFF"/>
-    </marker>
-    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="3.2" orient="auto">
-      <path d="M0,0 L6.5,3.2 L0,6.4 Z" fill="#3FB950"/>
-    </marker>
-  </defs>
-
-  <rect width="900" height="380" rx="10" fill="#0E1116"/>
-  <rect width="900" height="380" rx="10" fill="none" stroke="#232A34"/>
-
-  <!-- ─── column headings ─────────────────────────────────────────────── -->
-  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" fill="#5A6472" letter-spacing="1.4">
-    <text x="44" y="42">CLIENTS</text>
-    <text x="330" y="42">YOUR SERVER</text>
-    <text x="712" y="42">YOUR HOSTS</text>
-  </g>
-
-  <!-- ─── clients ─────────────────────────────────────────────────────── -->
-  <!-- laptop, attached -->
-  <g>
-    <animate attributeName="opacity" values="1;1;0.32;0.32;1" keyTimes="0;0.30;0.38;0.62;0.70" dur="10s" repeatCount="indefinite"/>
-    <rect x="44" y="64" width="176" height="70" rx="6" fill="#161B22" stroke="#232A34"/>
-    <text x="62" y="90" font-family="Inter Tight, Helvetica, sans-serif" font-size="13" fill="#E6EAF0">Browser — laptop</text>
-    <text x="62" y="110" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="#8B95A5">attached</text>
-  </g>
-  <circle cx="204" cy="106" r="3.5" fill="#3FB950">
-    <animate attributeName="opacity" values="1;1;0.15;0.15;1" keyTimes="0;0.30;0.36;0.62;0.68" dur="10s" repeatCount="indefinite"/>
-  </circle>
-
-
-  <!-- phone, attaches later -->
-  <rect x="44" y="188" width="176" height="70" rx="6" fill="#161B22" stroke="#232A34"/>
-  <text x="62" y="214" font-family="Inter Tight, Helvetica, sans-serif" font-size="13" fill="#E6EAF0">Browser — anywhere</text>
-  <text x="62" y="234" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="#8B95A5">reattaches</text>
-  <circle cx="204" cy="230" r="3.5" fill="#3FB950" opacity="0.15">
-    <animate attributeName="opacity" values="0.15;0.15;1;1;0.15" keyTimes="0;0.62;0.70;0.94;1" dur="10s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="204" cy="230" r="3.5" fill="none" stroke="#3FB950" stroke-width="1.5" opacity="0">
-    <animate attributeName="r" values="3.5;16" keyTimes="0;1" dur="1.1s" begin="6.6s;16.6s;26.6s;36.6s;46.6s" fill="freeze"/>
-    <animate attributeName="opacity" values="0.9;0" dur="1.1s" begin="6.6s;16.6s;26.6s;36.6s;46.6s"/>
-  </circle>
-
-  <text x="44" y="292" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="#5A6472">nothing installed</text>
-  <text x="44" y="308" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="#5A6472">no credentials held here</text>
-
-  <!-- attach / detach arrows -->
-  <line x1="224" y1="99" x2="316" y2="99" stroke="#4C8DFF" stroke-width="1.6"
-        stroke-dasharray="7 5" marker-end="url(#ab)">
-    <animate attributeName="stroke-dashoffset" values="24;0" dur="1.1s" repeatCount="indefinite"/>
-    <animate attributeName="opacity" values="1;1;0.10;0.10;1" keyTimes="0;0.30;0.38;0.62;0.70" dur="10s" repeatCount="indefinite"/>
-  </line>
-  <text x="238" y="90" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#5A6472">websocket</text>
-
-  <line x1="224" y1="223" x2="316" y2="200" stroke="#4C8DFF" stroke-width="1.6"
-        stroke-dasharray="7 5" marker-end="url(#ab)" opacity="0.10">
-    <animate attributeName="stroke-dashoffset" values="24;0" dur="1.1s" repeatCount="indefinite"/>
-    <animate attributeName="opacity" values="0.10;0.10;1;1;0.10" keyTimes="0;0.62;0.70;0.94;1" dur="10s" repeatCount="indefinite"/>
-  </line>
-
-  <!-- ─── skiff server ────────────────────────────────────────────────── -->
-  <rect x="322" y="64" width="270" height="260" rx="8" fill="#12161D" stroke="#2C3542"/>
-  <text x="342" y="90" font-family="Inter Tight, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#4C8DFF">Skiff</text>
-  <text x="342" y="108" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#5A6472">single binary + SQLite · docker compose</text>
-
-  <!-- live sessions box: the point of the whole diagram -->
-  <rect x="342" y="124" width="230" height="74" rx="6" fill="#0B0E13" stroke="rgba(63,185,80,0.35)"/>
-  <text x="358" y="147" font-family="Inter Tight, Helvetica, sans-serif" font-size="12.5" fill="#E6EAF0">Live SSH sessions</text>
-  <text x="358" y="166" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#8B95A5">held here, not in the tab</text>
-  <text x="358" y="183" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#3FB950">256 KB scrollback · 30 min idle grace</text>
-
-  <!-- steady heartbeat: the session is alive the whole loop -->
-  <circle cx="556" cy="141" r="3.5" fill="#3FB950">
-    <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/>
-  </circle>
-
-  <rect x="342" y="210" width="110" height="46" rx="6" fill="#161B22" stroke="#232A34"/>
-  <text x="356" y="230" font-family="Inter Tight, Helvetica, sans-serif" font-size="11.5" fill="#E6EAF0">Vault</text>
-  <text x="356" y="246" font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#8B95A5">AES-256-GCM</text>
-
-  <rect x="462" y="210" width="110" height="46" rx="6" fill="#161B22" stroke="#232A34"/>
-  <text x="476" y="230" font-family="Inter Tight, Helvetica, sans-serif" font-size="11.5" fill="#E6EAF0">Recorder</text>
-  <text x="476" y="246" font-family="ui-monospace, Menlo, monospace" font-size="9" fill="#8B95A5">asciicast v2</text>
-
-  <rect x="342" y="264" width="230" height="46" rx="6" fill="#161B22" stroke="#232A34"/>
-  <text x="356" y="283" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#8B95A5">audit log · team accounts</text>
-  <text x="356" y="299" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#8B95A5">host fingerprint pinning</text>
-
-  <!-- ─── hosts ───────────────────────────────────────────────────────── -->
-  <line x1="600" y1="161" x2="700" y2="120" stroke="#6B7688" stroke-width="1.4" stroke-dasharray="6 5" marker-end="url(#a)"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.6s" repeatCount="indefinite"/></line>
-  <line x1="600" y1="161" x2="700" y2="186" stroke="#6B7688" stroke-width="1.4" stroke-dasharray="6 5" marker-end="url(#a)"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.6s" repeatCount="indefinite"/></line>
-  <line x1="600" y1="161" x2="700" y2="252" stroke="#6B7688" stroke-width="1.4" stroke-dasharray="6 5" marker-end="url(#a)"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.6s" repeatCount="indefinite"/></line>
-  <text x="622" y="138" font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#5A6472">ssh</text>
-
-  <g font-family="ui-monospace, Menlo, monospace" font-size="10.5">
-    <rect x="706" y="98" width="150" height="42" rx="6" fill="#161B22" stroke="#232A34"/>
-    <text x="722" y="124" fill="#E6EAF0">prod-web-01</text>
-
-    <rect x="706" y="164" width="150" height="42" rx="6" fill="#161B22" stroke="#232A34"/>
-    <text x="722" y="190" fill="#E6EAF0">prod-db-01</text>
-
-    <rect x="706" y="230" width="150" height="42" rx="6" fill="#161B22" stroke="#232A34"/>
-    <text x="722" y="256" fill="#E6EAF0">staging</text>
-  </g>
-
-  <text x="706" y="296" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="#5A6472">unchanged — no agent,</text>
-  <text x="706" y="312" font-family="ui-monospace, Menlo, monospace" font-size="10" fill="#5A6472">no tmux, no config</text>
-
-  <!-- ─── caption ─────────────────────────────────────────────────────── -->
-  <line x1="44" y1="338" x2="856" y2="338" stroke="#232A34"/>
-  <text x="44" y="360" font-family="Inter Tight, Helvetica, sans-serif" font-size="12" fill="#8B95A5">
-    Browsers attach and detach. The session doesn't — it lives in the Skiff process until you return, or the idle timer reaps it.
-  </text>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="354" viewBox="0 0 900 354" role="img" aria-labelledby="title desc"><title id="title">Your browser is the viewer. Your server holds the session and Memory.</title><desc id="desc">Browsers attach over WebSocket to the Skiff Node.js process. It holds live sessions and encrypted SQLite data, connecting to target hosts using SSH and SFTP without a target agent.</desc><style>text{font-family:Arial,Helvetica,sans-serif}.mono{font-family:Consolas,Menlo,monospace}.muted{fill:#a4b3c7}.small{font-size:12px}.label{font-size:11px;letter-spacing:1.8px;fill:#9bb5d3}.flow{stroke-dasharray:6 6;animation:flow 3s linear infinite}.pulse{animation:pulse 3s ease-in-out infinite}.focus{animation:focus 8s ease-in-out infinite}@keyframes flow{to{stroke-dashoffset:-48}}@keyframes pulse{50%{opacity:.45}}@keyframes focus{0%,100%{stroke:#315176}50%{stroke:#72b8ff}}@media(prefers-reduced-motion:reduce){.flow,.pulse,.focus{animation:none}}</style>
+<rect x="1" y="1" width="898" height="352" rx="16" fill="#0c121c" stroke="#26364c"/>
+<text x="28" y="35" class="label">HOW IT WORKS / NO TARGET AGENT</text>
+<text x="28" y="77" font-size="20" font-weight="700" fill="#eff5ff">Your browser is the viewer. Your server keeps the work.</text>
+<rect x="28" y="113" width="192" height="175" rx="10" fill="#111c2b" stroke="#2c405b"/>
+<text x="46" y="143" font-size="17" font-weight="700" fill="#e3eeff">Browser</text>
+<text x="46" y="174" font-size="13" class="muted">Terminal · History · Notes</text>
+<text x="46" y="205" font-size="12" fill="#72b8ff">Close / disconnect</text><text x="46" y="229" font-size="12" fill="#64d8ae">Return / reattach</text>
+<text x="46" y="267" font-size="11" class="muted">UI served by your Skiff instance</text>
+<path d="M229 196H312" stroke="#72b8ff" stroke-width="2" class="flow"/><text x="231" y="179" font-size="10" class="muted">WebSocket</text>
+<rect x="322" y="113" width="290" height="175" rx="10" fill="#122138" stroke="#416187"/>
+<text x="340" y="143" font-size="17" font-weight="700" fill="#e3eeff">Your Skiff server</text>
+<text x="340" y="165" font-size="11" class="muted">Node.js · Docker optional</text>
+<rect x="340" y="182" width="254" height="35" rx="5" fill="#0b161f" stroke="#315e52"/><circle cx="354" cy="199" r="4" fill="#64d8ae" class="pulse"/><text x="369" y="204" font-size="13" fill="#8be6bd">Live SSH sessions + scrollback</text>
+<text x="340" y="244" font-size="13" fill="#c6dfff">Memory · vault · recordings</text>
+<text x="340" y="267" font-size="11" class="muted">Encrypted content in local SQLite / files</text>
+<path d="M620 196H693" stroke="#72b8ff" stroke-width="2" class="flow"/><text x="620" y="179" font-size="10" class="muted">SSH / SFTP</text>
+<rect x="702" y="113" width="170" height="175" rx="10" fill="#111c2b" stroke="#2c405b"/>
+<text x="720" y="143" font-size="17" font-weight="700" fill="#e3eeff">Your hosts</text>
+<text x="720" y="179" font-size="12" class="mono" fill="#c6dfff">prod-web-01</text><text x="720" y="204" font-size="12" class="mono" fill="#c6dfff">prod-db-01</text><text x="720" y="229" font-size="12" class="mono" fill="#c6dfff">staging</text>
+<text x="720" y="267" font-size="11" fill="#64d8ae">No Skiff agent installed</text>
+<text x="28" y="325" font-size="12" class="muted">Live sessions end when Skiff restarts, the connection closes, or the detached-session idle grace expires.</text>
 </svg>
