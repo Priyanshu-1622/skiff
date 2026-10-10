@@ -1,3 +1,4 @@
+import { waitForShellReady } from "../test-support/terminal-ready.js";
 /**
  * Full-stack wiring test: connect a real WebSocket terminal session against
  * an in-process fake SSH server, run a command, end the session, and check
@@ -54,15 +55,7 @@ function fakeSshdWithShell() {
 
 async function connectAndRunWhoami(app: any, hostId: string, base: string, cookie: string): Promise<Buffer | null> {
   const ws = new WebSocket(`ws://${base}/api/terminal/${hostId}`, { headers: { cookie } });
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("no Connected within 10s")), 10_000);
-    ws.on("message", (raw: Buffer) => {
-      const m = JSON.parse(raw.toString());
-      if (m.type === "fingerprint_new") ws.send(JSON.stringify({ type: "fingerprint_approve" }));
-      if (m.type === "status" && m.message === "Connected") { clearTimeout(timer); resolve(); }
-      if (m.type === "error") { clearTimeout(timer); reject(new Error(m.message)); }
-    });
-  });
+  await waitForShellReady(ws, true);
   ws.send(JSON.stringify({ type: "input", data: Buffer.from("whoami\n").toString("base64") }));
   await new Promise((r) => setTimeout(r, 300)); // let the echo/output round-trip and capture process it
   // A second command so "whoami" actually finishes via the real

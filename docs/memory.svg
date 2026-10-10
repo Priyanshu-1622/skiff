@@ -1,29 +1,67 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="338" viewBox="0 0 900 338" role="img" aria-labelledby="title desc"><title id="title">Remember the work. Keep the session.</title><desc id="desc">Illustrated examples of searchable command output, file diffs with both versions, and server-held sessions that survive a closed browser tab.</desc><style>text{font-family:Arial,Helvetica,sans-serif}.mono{font-family:Consolas,Menlo,monospace}.muted{fill:#a4b3c7}.small{font-size:12px}.label{font-size:11px;letter-spacing:1.8px;fill:#9bb5d3}.flow{stroke-dasharray:6 6;animation:flow 3s linear infinite}.pulse{animation:pulse 3s ease-in-out infinite}.focus{animation:focus 8s ease-in-out infinite}@keyframes flow{to{stroke-dashoffset:-48}}@keyframes pulse{50%{opacity:.45}}@keyframes focus{0%,100%{stroke:#315176}50%{stroke:#72b8ff}}@media(prefers-reduced-motion:reduce){.flow,.pulse,.focus{animation:none}}</style>
-<rect x="1" y="1" width="898" height="336" rx="16" fill="#0c121c" stroke="#26364c"/>
-<text x="24" y="33" class="label">REMEMBER THE WORK. KEEP THE SESSION.</text><text x="755" y="33" font-size="10" class="muted">ILLUSTRATED EXAMPLES</text>
-<g><rect x="24" y="53" width="274" height="258" rx="10" fill="#111c2b" stroke="#2b405b"/>
-<text x="42" y="82" class="label" fill="#72b8ff">01 / FIND THE FIX</text>
-<text x="42" y="115" font-size="21" font-weight="700" fill="#eff5ff">Search past work</text>
-<rect x="42" y="133" width="238" height="30" rx="5" fill="#0b131f" stroke="#365c86" class="focus"/><text x="54" y="153" font-size="12" fill="#c6dfff">Search commands + output</text>
-<text x="42" y="189" font-size="12" class="mono" fill="#e0ecff">$ sudo nginx -t</text>
-<text x="42" y="213" font-size="11" class="mono" fill="#64d8ae">test is successful</text>
-<path d="M42 233H280" stroke="#2a3c54"/>
-<text x="42" y="260" font-size="13" class="muted">Across hosts. Back to the output.</text><text x="42" y="282" font-size="13" class="muted">Pin the useful part to host notes.</text></g>
-<g><rect x="313" y="53" width="274" height="258" rx="10" fill="#111c2b" stroke="#2b405b"/>
-<text x="331" y="82" class="label">02 / SEE THE CHANGE</text>
-<text x="331" y="115" font-size="21" font-weight="700" fill="#eff5ff">Keep the file diff</text>
-<text x="331" y="149" font-size="12" class="mono" fill="#b5c9e5">nginx.conf</text>
-<rect x="331" y="162" width="238" height="27" rx="4" fill="#35202b"/><text x="343" y="180" font-size="12" class="mono" fill="#ffb6b6">− worker_processes 1;</text>
-<rect x="331" y="194" width="238" height="27" rx="4" fill="#15372e"/><text x="343" y="212" font-size="12" class="mono" fill="#8be6bd">+ worker_processes auto;</text>
-<path d="M331 233H569" stroke="#2a3c54"/>
-<text x="331" y="260" font-size="13" class="muted">Before and after, kept together.</text><text x="331" y="282" font-size="13" class="muted">Read either version. Copy the old.</text></g>
-<g><rect x="602" y="53" width="274" height="258" rx="10" fill="#111c2b" stroke="#2b405b"/>
-<text x="620" y="82" class="label">03 / PICK UP YOUR SESSION</text>
-<text x="620" y="115" font-size="21" font-weight="700" fill="#eff5ff">Close tab. Come back.</text>
-<rect x="620" y="138" width="94" height="32" rx="5" fill="#0b131f" stroke="#324b69"/><text x="632" y="159" font-size="12" class="muted">Tab closed</text>
-<path d="M721 154H753" stroke="#72b8ff" stroke-width="2" class="flow"/>
-<rect x="759" y="138" width="99" height="32" rx="5" fill="#15372e" stroke="#34725e"/><text x="770" y="159" font-size="12" fill="#8be6bd">Reattached</text>
-<circle cx="626" cy="203" r="4" fill="#64d8ae" class="pulse"/><text x="640" y="207" font-size="12" class="mono" fill="#d9e9ff">SSH stays on your server</text>
-<path d="M620 233H858" stroke="#2a3c54"/>
-<text x="620" y="260" font-size="13" class="muted">Same live process, recent scrollback.</text><text x="620" y="282" font-size="13" class="muted">Within the idle grace period.</text></g>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="400" viewBox="0 0 900 400" role="img" aria-labelledby="title desc">
+<title id="title">Your work becomes the next fix</title>
+<desc id="desc">Animated illustrated examples: search captured commands and output, inspect both versions of a changed file, and reattach a session that stays alive on your server. Motion stops when reduced motion is requested.</desc>
+<defs>
+<linearGradient id="background" x2="1" y2="1"><stop stop-color="#111e30"/><stop offset="1" stop-color="#080f19"/></linearGradient>
+<linearGradient id="card" x2="0" y2="1"><stop stop-color="#152338"/><stop offset="1" stop-color="#101b2a"/></linearGradient>
+<clipPath id="search-mask"><rect class="motion typing" x="77" y="154" width="169" height="20"/></clipPath>
+</defs>
+<style>
+text{font-family:Arial,Helvetica,sans-serif}.mono{font-family:Consolas,Menlo,monospace}.label{font-size:10px;letter-spacing:1.4px;fill:#9fb7d4}.muted{fill:#acbdd2}.heading{font-size:21px;font-weight:700;fill:#f0f6ff}.caption{font-size:13px;fill:#b1c1d6}
+.motion{animation-duration:9s;animation-iteration-count:infinite;animation-timing-function:cubic-bezier(.22,.61,.36,1)}
+.typing{transform-box:fill-box;transform-origin:left center;animation-name:typing;animation-timing-function:steps(16,end)}
+.caret{animation:blink 1s steps(1,end) infinite}.result{animation-name:result}.match{animation-name:match}.old{animation-name:old}.new{animation-name:new}.diff-line{stroke-dasharray:180;animation-name:draw}.tab{animation-name:tab}.offline{animation-name:offline}.online{animation-name:online}.packet{animation-name:packet;animation-timing-function:linear}.packet.second{animation-delay:-1.2s}.live{animation:pulse 2.5s ease-in-out infinite}.progress{transform-box:fill-box;transform-origin:left center;animation-name:progress;animation-timing-function:linear}
+@keyframes typing{0%,8%{transform:scaleX(0)}28%,88%{transform:scaleX(1)}100%{transform:scaleX(0)}}
+@keyframes blink{50%{opacity:0}}
+@keyframes result{0%,20%,100%{opacity:.25;transform:translateY(7px)}32%,88%{opacity:1;transform:translateY(0)}}
+@keyframes match{0%,26%,100%{opacity:0}35%,88%{opacity:1}}
+@keyframes old{0%,25%,100%{opacity:1}40%,85%{opacity:.55}}
+@keyframes new{0%,25%,100%{opacity:.25;transform:translateX(-7px)}42%,85%{opacity:1;transform:translateX(0)}}
+@keyframes draw{0%,24%,100%{stroke-dashoffset:180;opacity:.25}42%,85%{stroke-dashoffset:0;opacity:1}}
+@keyframes tab{0%,20%,85%,100%{opacity:1;transform:translateY(0)}30%,48%{opacity:.2;transform:translateY(-6px)}60%,75%{opacity:1;transform:translateY(0)}}
+@keyframes offline{0%,20%,62%,100%{opacity:0}30%,48%{opacity:1}}
+@keyframes online{0%,48%,100%{opacity:0}60%,85%{opacity:1}}
+@keyframes packet{0%,20%,100%{opacity:0;transform:translateX(0)}30%{opacity:1;transform:translateX(0)}55%{opacity:1;transform:translateX(224px)}56%,85%{opacity:0;transform:translateX(224px)}}
+@keyframes pulse{50%{opacity:.45}}
+@keyframes progress{0%{transform:scaleX(0)}90%,100%{transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){.motion,.caret,.live{animation:none}.offline{opacity:0}.online{opacity:1}}
+</style>
+<rect x="1" y="1" width="898" height="398" rx="18" fill="url(#background)" stroke="#2d405b"/>
+<text x="24" y="30" class="label">MEMORY IN ACTION</text>
+<text x="24" y="62" font-size="27" font-weight="700" fill="#f0f6ff">Your work becomes the next fix.</text>
+<text x="665" y="30" class="label">ILLUSTRATED EXAMPLES</text>
+<text x="665" y="59" font-size="12" class="muted">Nothing installed on target hosts.</text>
+<g>
+<rect x="24" y="86" width="274" height="288" rx="12" fill="url(#card)" stroke="#304965"/>
+<text x="42" y="108" class="label">01 / FIND THE FIX</text><text x="42" y="135" class="heading">Search past work</text>
+<rect x="42" y="150" width="238" height="32" rx="6" fill="#0a1320" stroke="#5483b4"/>
+<circle cx="58" cy="164" r="5" fill="none" stroke="#91c7ff" stroke-width="1.5"/><path d="m62 168 4 4" stroke="#91c7ff" stroke-width="1.5"/>
+<text x="77" y="171" class="mono" font-size="12" fill="#d4eaff" clip-path="url(#search-mask)">nginx successful</text><path class="caret" d="M254 158v16" stroke="#91c7ff" stroke-width="1.5"/>
+<g class="motion result">
+<rect x="42" y="194" width="238" height="93" rx="6" fill="#0b1724" stroke="#2c5365"/><text x="54" y="214" class="label">WEB-01 · CAPTURED OUTPUT</text>
+<text x="54" y="239" class="mono" font-size="13" fill="#e3efff">$ sudo nginx -t</text>
+<rect class="motion match" x="54" y="252" width="146" height="19" rx="3" fill="#174c3e"/><text x="58" y="266" class="mono" font-size="11" fill="#83e8be">test is successful</text>
+<path class="motion match" d="m252 254 5 5 9-11" fill="none" stroke="#83e8be" stroke-width="2" stroke-linecap="round"/>
+</g>
+<path d="M42 308h238" stroke="#2e415b"/><text x="42" y="331" class="caption">Find the command. See its output.</text><text x="42" y="353" class="caption">Keep the useful part in host notes.</text>
+</g>
+<g>
+<rect x="313" y="86" width="274" height="288" rx="12" fill="url(#card)" stroke="#304965"/>
+<text x="331" y="108" class="label">02 / SEE THE CHANGE</text><text x="331" y="135" class="heading">Keep the file diff</text><text x="331" y="168" class="mono" font-size="12" fill="#c0d3ea">nginx.conf</text>
+<g class="motion old"><rect x="331" y="183" width="238" height="34" rx="5" fill="#3c2430"/><text x="342" y="205" class="mono" font-size="11" fill="#ffc1c5">− worker_processes 1;</text></g>
+<g class="motion new"><rect x="331" y="224" width="238" height="34" rx="5" fill="#153f33"/><text x="342" y="246" class="mono" font-size="11" fill="#96edc4">+ worker_processes auto;</text></g>
+<path class="motion diff-line" d="M338 280h165" fill="none" stroke="#73caa8" stroke-width="2" stroke-linecap="round"/><text x="514" y="284" font-size="10" fill="#96edc4">+1 −1</text>
+<path d="M331 308h238" stroke="#2e415b"/><text x="331" y="331" class="caption">Before and after, kept together.</text><text x="331" y="353" class="caption">Read either version. Copy the old.</text>
+</g>
+<g>
+<rect x="602" y="86" width="274" height="288" rx="12" fill="url(#card)" stroke="#304965"/>
+<text x="620" y="108" class="label">03 / PICK UP YOUR SESSION</text><text x="620" y="135" class="heading">Close tab. Come back.</text>
+<g class="motion tab"><rect x="620" y="151" width="238" height="65" rx="6" fill="#091420" stroke="#476381"/><path d="M620 173h238" stroke="#293f59"/><circle cx="632" cy="162" r="3" fill="#ff8f92"/><circle cx="643" cy="162" r="3" fill="#e3bf74"/><circle cx="654" cy="162" r="3" fill="#73caa8"/>
+<text x="634" y="199" class="mono" font-size="12" fill="#d2e5ff">$ tail -f app.log</text><path class="caret" d="M770 187v14" stroke="#91c7ff"/></g>
+<text class="motion offline" x="682" y="240" font-size="12" fill="#efc78d">Tab disconnected</text><text class="motion online" x="691" y="240" font-size="12" fill="#96edc4">Reattached ✓</text>
+<path d="M626 252h224" stroke="#385a77" stroke-width="2"/><circle class="motion packet" cx="626" cy="252" r="3" fill="#85c3ff"/><circle class="motion packet second" cx="626" cy="252" r="3" fill="#85c3ff"/>
+<circle class="live" cx="627" cy="279" r="4" fill="#73e0b1"/><text x="640" y="283" class="mono" font-size="11" fill="#b7dfd0">SSH stays on your server</text>
+<path d="M620 308h238" stroke="#2e415b"/><text x="620" y="331" class="caption">Same process, recent scrollback.</text><text x="620" y="353" class="caption">Within the idle grace period.</text>
+</g>
+<rect class="motion progress" x="24" y="387" width="852" height="2" rx="1" fill="#6caeef" opacity=".5"/>
 </svg>

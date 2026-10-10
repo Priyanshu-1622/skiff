@@ -1,3 +1,4 @@
+import { waitForShellReady } from "../test-support/terminal-ready.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
@@ -124,6 +125,7 @@ function fakeServer(opts: { sftpDelayMs?: number } = {}) {
 
 async function openTerminal(hostId: string, base: string, cookie: string) {
   const ws = new WebSocket(`ws://${base}/api/terminal/${hostId}`, { headers: { cookie } });
+  const shellReady = waitForShellReady(ws);
   const msgs: any[] = [];
   let wake: Array<() => void> = [];
   ws.on("message", (raw: Buffer) => {
@@ -145,6 +147,7 @@ async function openTerminal(hostId: string, base: string, cookie: string) {
   /** Type a line, then give the capture engine and the file tracker time to finish. */
   const type = async (s: string, settleMs = 700) => { send({ type: "input", data: Buffer.from(s).toString("base64") }); await new Promise((r) => setTimeout(r, settleMs)); };
   const end = async () => { send({ type: "end_session" }); await new Promise((r) => setTimeout(r, 400)); try { ws.close(); } catch { /* ignore */ } };
+  await shellReady;
   return { ws, msgs, waitFor, send, type, end };
 }
 const connected = (m: any) => m.type === "status" && (m.message === "Connected" || m.message === "Reattached");

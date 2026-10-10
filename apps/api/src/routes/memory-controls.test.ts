@@ -1,3 +1,4 @@
+import { waitForShellReady } from "../test-support/terminal-ready.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
@@ -155,15 +156,7 @@ function fakeSshdWithShell() {
 
 async function runTwoCommands(hostId: string, base: string, cookie: string): Promise<void> {
   const ws = new WebSocket(`ws://${base}/api/terminal/${hostId}`, { headers: { cookie } });
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("no Connected within 10s")), 10_000);
-    ws.on("message", (raw: Buffer) => {
-      const m = JSON.parse(raw.toString());
-      if (m.type === "fingerprint_new") ws.send(JSON.stringify({ type: "fingerprint_approve" }));
-      if (m.type === "status" && m.message === "Connected") { clearTimeout(timer); resolve(); }
-      if (m.type === "error") { clearTimeout(timer); reject(new Error(m.message)); }
-    });
-  });
+  await waitForShellReady(ws, true);
   ws.send(JSON.stringify({ type: "input", data: Buffer.from("whoami\n").toString("base64") }));
   await new Promise((r) => setTimeout(r, 300));
   ws.send(JSON.stringify({ type: "input", data: Buffer.from("pwd\n").toString("base64") }));
