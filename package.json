@@ -1,6 +1,6 @@
 {
   "name": "skiff",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Self-hosted SSH manager with searchable command history, file diffs, and persistent sessions. Open-source alternative to Termius.",
   "private": true,
   "keywords": [

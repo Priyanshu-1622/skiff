@@ -1,7 +1,7 @@
 {
   "name": "@skiff/api",
   "license": "AGPL-3.0-only",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "./dist/server.js",

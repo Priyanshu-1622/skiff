@@ -94,7 +94,7 @@ export function SettingsRoute() {
           </button>
         ))}
         <div className="foot">
-          <span>v0.3.2</span>
+          <span>v0.4.0</span>
           <span>AGPL-3.0</span>
         </div>
       </nav>
@@ -487,7 +487,7 @@ function AboutSection() {
       <div className="s-section">
         <div className="s-section__body" style={{ paddingTop: 14 }}>
           {[
-            ["Version", "0.3.2"],
+            ["Version", "0.4.0"],
             ["License", "AGPL-3.0"],
             ["Stack", "React + Fastify + SQLite"],
             ["Encryption", "AES-256-GCM + argon2id"],
