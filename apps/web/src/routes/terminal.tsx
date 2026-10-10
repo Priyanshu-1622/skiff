@@ -47,7 +47,7 @@ export function TerminalRoute() {
   const [statusMsg, setStatusMsg] = useState("Connecting…");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [fontSize, setFontSize] = useState<number>(() => {
-    const stored = parseInt(localStorage.getItem(FONT_STORAGE_KEY) || "");
+    const stored = parseInt(getStored(FONT_STORAGE_KEY) || "");
     return stored >= MIN_FONT && stored <= MAX_FONT ? stored : DEFAULT_FONT;
   });
   const [reconnectKey, setReconnectKey] = useState(0);
@@ -68,7 +68,7 @@ export function TerminalRoute() {
 
   // Persist font size
   useEffect(() => {
-    localStorage.setItem(FONT_STORAGE_KEY, String(fontSize));
+    setStored(FONT_STORAGE_KEY, String(fontSize));
     if (xtermRef.current) {
       xtermRef.current.options.fontSize = fontSize;
       try { fitRef.current?.fit(); } catch { /* ignore */ }
@@ -161,6 +161,10 @@ export function TerminalRoute() {
   // Every control character (incl. CR/LF) is stripped so it can't execute by itself.
   const runAgain = useCallback((command: string) => {
     const sock = socketRef.current;
+    if (/[\r\n]/.test(command)) {
+      toast.info("Copy this command block", { description: "Line breaks matter. Copy it and review the complete block before pasting." });
+      return;
+    }
     const text = command.replace(/[\u0000-\u001f\u007f]/g, "");
     if (!text || connState !== "connected" || sock?.readyState !== WebSocket.OPEN) return;
     sock.send(JSON.stringify({ type: "input", data: encodeInputToBase64(text) }));
@@ -238,8 +242,11 @@ export function TerminalRoute() {
           if (selection) navigator.clipboard?.writeText(selection).catch(() => {});
           return false;
         }
-        if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
-          return false; // let the browser paste; xterm picks up the paste event
+        if (e.ctrlKey && (e.key === "V" || e.key === "v")) {
+          // Both browser paste shortcuts must bypass xterm's Ctrl+V (0x16).
+          // In zsh that control quotes the following bracketed-paste marker,
+          // inserting literal ^[[200~ instead of letting the shell parse it.
+          return false; // native paste is delivered once through xterm's paste event
         }
         if (e.ctrlKey && !e.shiftKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
           return false;

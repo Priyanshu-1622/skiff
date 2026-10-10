@@ -270,3 +270,37 @@ test("Memory settings (per-host off, vault-wide off, output retention days) surv
     assert.equal(host.memory_mode, "off", "restore must not silently turn memory back on for a host that had it off");
   } finally { await target.close(); }
 });
+
+test("restore accepts valid folders in any export order", async () => {
+  const source = await buildApp({ config: TEST_CONFIG, db: memDb() });
+  let backup: any;
+  try {
+    const setup = await source.inject({ method: "POST", url: "/api/vault/setup", payload: { password: "master-pass-1" } });
+    backup = (await source.inject({ method: "GET", url: "/api/settings/backup", headers: { cookie: cookieFrom(setup) } })).json().data;
+  } finally { await source.close(); }
+  backup.folders = [
+    { id: "child", parent_id: "parent", name: "Child" },
+    { id: "parent", parent_id: null, name: "Parent" },
+  ];
+  const targetDb = memDb();
+  const target = await buildApp({ config: TEST_CONFIG, db: targetDb });
+  try {
+    const restored = await target.inject({ method: "POST", url: "/api/settings/restore", payload: backup });
+    assert.equal(restored.statusCode, 200, restored.body);
+    assert.equal((targetDb.raw.prepare("SELECT parent_id FROM folders WHERE id = 'child'").get() as any).parent_id, "parent");
+    assert.equal(targetDb.raw.pragma("foreign_keys", { simple: true }), 1);
+    assert.deepEqual(targetDb.raw.pragma("foreign_key_check"), []);
+  } finally { await target.close(); }
+  // Deferral changes insertion order only: an actually missing parent must
+  // still fail at commit, rolling back the vault and all restored records.
+  backup.folders = [{ id: "orphan", parent_id: "absent", name: "Orphan" }];
+  const invalidDb = memDb();
+  const invalid = await buildApp({ config: TEST_CONFIG, db: invalidDb });
+  try {
+    const result = await invalid.inject({ method: "POST", url: "/api/settings/restore", payload: backup });
+    assert.notEqual(result.statusCode, 200);
+    assert.equal((invalidDb.raw.prepare("SELECT COUNT(*) AS c FROM vault_meta").get() as any).c, 0);
+    assert.equal((invalidDb.raw.prepare("SELECT COUNT(*) AS c FROM folders").get() as any).c, 0);
+    assert.equal(invalidDb.raw.pragma("foreign_keys", { simple: true }), 1);
+  } finally { await invalid.close(); }
+});

@@ -18,6 +18,25 @@ function tmp() {
   return mkdtempSync(join(tmpdir(), "skiff-rec-"));
 }
 
+test("a recording write failure releases its timer, buffered output and key", async () => {
+  const dir = tmp();
+  try {
+    const key = newDataKey();
+    // A missing subdirectory makes createWriteStream emit its real async error.
+    const rec = SessionRecorder.create({ dir, id: "missing/rec", cols: 80, rows: 24, key });
+    const state = rec as any;
+    const ownedKey: Buffer = state.key;
+    rec.writeOutput(Buffer.from("pending output"));
+    await rec.closed;
+    assert.equal(state.flushTimer, null);
+    assert.equal(state.key, null);
+    assert.equal(state.pending.length, 0);
+    assert.ok(ownedKey.every((byte) => byte === 0));
+    assert.ok(key.some((byte) => byte !== 0), "the caller's key remains intact");
+    rec.finalize();
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
+});
+
 test("writes a valid asciicast v2 header", async () => {
   const dir = tmp();
   try {

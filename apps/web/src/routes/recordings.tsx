@@ -163,7 +163,14 @@ export function RecordingsRoute() {
 
       {recordings.isLoading && <div className="rec-empty">Loading…</div>}
 
-      {!recordings.isLoading && list.length === 0 && (
+      {recordings.isError && (
+        <div className="rec-empty" role="alert">
+          <p>Could not load recordings.</p>
+          <button className="rec-back" onClick={() => recordings.refetch()}>Try again</button>
+        </div>
+      )}
+
+      {!recordings.isLoading && !recordings.isError && list.length === 0 && (
         <div className="rec-empty">
           <I.Film size={32} />
           <p>No recordings yet.</p>
@@ -201,6 +208,7 @@ export function RecordingsRoute() {
                 )}
                 {canDelete && <button
                   className="rec-icon-btn rec-danger"
+                  disabled={del.isPending}
                   onClick={() => {
                     if (confirm("Delete this recording? This cannot be undone.")) del.mutate(r.id);
                   }}

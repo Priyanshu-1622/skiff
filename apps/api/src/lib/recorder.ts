@@ -80,7 +80,12 @@ export class SessionRecorder {
     }
     rec.stream = createWriteStream(filePath, { flags: "w" });
     // An I/O error (disk full, permissions) must not crash the process.
-    rec.stream.on("error", () => { rec.finalized = true; rec.stream = null; rec.markClosed(); });
+    rec.stream.on("error", () => {
+      rec.finalized = true;
+      rec.stream = null;
+      rec.releaseSecrets();
+      rec.markClosed();
+    });
     rec.stream.on("close", () => rec.markClosed());
     rec.startMs = Date.now();
 
@@ -142,12 +147,19 @@ export class SessionRecorder {
       const tail = this.decoder.end();
       if (tail) this.writeLine(JSON.stringify([this.elapsed(), "o", tail]));
       this.flushChunk();
-      if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
       this.finalized = true;
       try { this.stream.end(); } catch { /* ignore */ }
       this.stream = null;
-      this.key?.fill(0);
     }
+    this.releaseSecrets();
     return { durationMs, bytes: this.bytes };
+  }
+
+  private releaseSecrets(): void {
+    if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
+    this.key?.fill(0);
+    this.key = null;
+    this.pending = [];
+    this.pendingBytes = 0;
   }
 }

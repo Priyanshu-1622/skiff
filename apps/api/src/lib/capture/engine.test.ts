@@ -10,6 +10,83 @@ function typeAndEnter(engine: CaptureEngine, command: string) {
   engine.onInput("\n");
 }
 
+test("plain zsh keeps capturing across cwd prompt changes and stores clean output", async () => {
+  const mirror = new TermMirror({ cols: 100, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("demo@Mac-mini ~ % ");
+  typeAndEnter(engine, "cd /tmp");
+  await engine.onOutput("cd /tmp\r\n\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m   \r\x1b[0m\x1b[27m\x1b[24mdemo@Mac-mini /tmp % \x1b[K");
+  typeAndEnter(engine, "pwd");
+  await engine.onOutput("pwd\r\n\x1b[32m/private/tmp\x1b[0m\r\ndemo@Mac-mini /tmp % ");
+  typeAndEnter(engine, "echo done");
+  await engine.onOutput("echo done\r\ndone\r\ndemo@Mac-mini /tmp % ");
+  assert.deepEqual(engine.events.map(e => e.command), ["cd /tmp", "pwd", "echo done"]);
+  assert.equal(engine.events[0].output.trim(), "");
+  assert.equal(engine.events[1].output.trim(), "/private/tmp");
+  assert.equal(engine.events[2].output.trim(), "done");
+  assert.ok(engine.events.every(e => !e.output.includes("\x1b") && !e.output.includes("Mac-mini")));
+  mirror.dispose();
+});
+
+test("marker output removes styling without changing the live terminal", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("\x1b]133;A\x07$ \x1b]133;B\x07");
+  typeAndEnter(engine, "echo styled");
+  await engine.onOutput("echo styled\r\n\x1b]133;C\x07\x1b[32mstyled\x1b[0m\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ \x1b]133;B\x07");
+  assert.equal(engine.events[0].output.trim(), "styled");
+  assert.ok((await mirror.snapshot()).includes("styled"));
+  mirror.dispose();
+});
+
+test("a fragmented bracketed multiline paste preserves the whole submitted script and its one exit status", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("\x1b]133;A\x07$ \x1b]133;B\x07");
+  await engine.onInput("\x1b[20");
+  await engine.onInput("0~echo paste-one\necho paste-two\x1b[201");
+  await engine.onInput("~");
+  await engine.onOutput("echo paste-one\r\necho paste-two");
+  assert.equal(engine.events.length, 0, "paste line breaks do not execute the block");
+  await engine.onInput("\r");
+  await engine.onOutput("\r\n\x1b]133;C\x07paste-one\r\npaste-two\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ \x1b]133;B\x07");
+  assert.equal(engine.events.length, 1);
+  assert.equal(engine.events[0].command, "echo paste-one\necho paste-two");
+  assert.equal(engine.events[0].output.trim(), "paste-one\npaste-two");
+  assert.equal(engine.events[0].exitCode, 0);
+  assert.ok(engine.events[0].flags.includes("multiline"));
+  mirror.dispose();
+});
+
+test("screen mode waits for the final echoed newline of a pasted block", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  await engine.onOutput("demo@Mac-mini ~ % ");
+  await engine.onInput("\x1b[200~echo one\necho two\x1b[201~\r");
+  await engine.onOutput("echo one\r\n");
+  assert.equal(engine.events.length, 0);
+  await engine.onOutput("echo two\r\none\r\ntwo\r\ndemo@Mac-mini ~ % ");
+  assert.equal(engine.events.length, 1);
+  assert.equal(engine.events[0].command, "echo one\necho two");
+  assert.equal(engine.events[0].output.trim(), "one\ntwo");
+  assert.ok(engine.events[0].flags.includes("multiline"));
+  mirror.dispose();
+});
+
+test("pasted shell structures are kept intact, not split into fictitious executions", async () => {
+  const mirror = new TermMirror({ cols: 80, rows: 24 });
+  const engine = new CaptureEngine(mirror);
+  const block = "for value in one two; do\n  echo \"$value\"\ndone";
+  await engine.onOutput("\x1b]133;A\x07$ \x1b]133;B\x07");
+  await engine.onInput(`\x1b[200~${block}\x1b[201~`);
+  await engine.onOutput(block.replaceAll("\n", "\r\n"));
+  await engine.onInput("\r");
+  await engine.onOutput("\r\n\x1b]133;C\x07one\r\ntwo\r\n\x1b]133;D;0\x07$ ");
+  assert.equal(engine.events.length, 1);
+  assert.equal(engine.events[0].command, block);
+  mirror.dispose();
+});
+
 test("marker mode: captures command text, exit code and cwd from real OSC 133/7 bytes, ignoring the probe's own spurious duplicate C markers", async () => {
   const mirror = new TermMirror({ cols: 80, rows: 24 });
   const engine = new CaptureEngine(mirror);

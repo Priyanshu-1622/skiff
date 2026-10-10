@@ -23,11 +23,11 @@ function SnippetRow({ s, onRun }: { s: Snippet; onRun?: (command: string) => voi
   if (editing) {
     return (
       <div className="memsnip">
-        <input className="memdrawer__search" aria-label="Snippet name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
-        <textarea className="memsnip__cmd-input" aria-label="Snippet command" value={command} maxLength={4000} onChange={(e) => setCommand(e.target.value)} />
+        <input className="memdrawer__search" aria-label="Snippet name" disabled={update.isPending} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+        <textarea className="memsnip__cmd-input" aria-label="Snippet command" disabled={update.isPending} value={command} maxLength={4000} onChange={(e) => setCommand(e.target.value)} />
         <div className="memdrawer__actions">
           <button type="button" className="memdrawer__action" disabled={update.isPending || !name.trim() || !command} onClick={() => update.mutate()}>Save</button>
-          <button type="button" className="memdrawer__cancel" onClick={() => { setEditing(false); setName(s.name); setCommand(s.command); }}>Cancel</button>
+          <button type="button" className="memdrawer__cancel" disabled={update.isPending} onClick={() => { setEditing(false); setName(s.name); setCommand(s.command); }}>Cancel</button>
         </div>
         {failure && <div className="memdrawer__err">{(failure as Error).message}</div>}
       </div>
@@ -40,12 +40,12 @@ function SnippetRow({ s, onRun }: { s: Snippet; onRun?: (command: string) => voi
       {!confirming ? (
         <div className="memdrawer__actions">
           {onRun && (
-            <button type="button" className="memdrawer__action" title="Types the command into the terminal — you press Enter" onClick={() => onRun(s.command)}>Run</button>
+            <button type="button" className="memdrawer__action" disabled={/[\r\n]/.test(s.command)} title={/[\r\n]/.test(s.command) ? "Use Copy to preserve and review this multi-line block" : "Types the command into the terminal — you press Enter"} onClick={() => onRun(s.command)}>Run</button>
           )}
           <button type="button" className="memdrawer__action" onClick={async () => setCopyState(await writeClipboard(s.command))}>
             {copyState === "ok" ? "Copied" : copyState === "fail" ? "Couldn't copy" : "Copy"}
           </button>
-          <button type="button" className="memdrawer__action" onClick={() => setEditing(true)}>Edit</button>
+          <button type="button" className="memdrawer__action" onClick={() => { setName(s.name); setCommand(s.command); update.reset(); setEditing(true); }}>Edit</button>
           <button type="button" className="memdrawer__forget" onClick={() => setConfirming(true)}>Delete</button>
         </div>
       ) : (
@@ -80,8 +80,8 @@ export function MemorySnippets({ onRun }: { onRun?: (command: string) => void })
   return (
     <div className="memsnips">
       <div className="memsnip memsnip--new">
-        <input className="memdrawer__search" aria-label="New snippet name" placeholder="Name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
-        <textarea className="memsnip__cmd-input" aria-label="New snippet command" placeholder="Command" value={command} maxLength={4000} onChange={(e) => setCommand(e.target.value)} />
+        <input className="memdrawer__search" aria-label="New snippet name" disabled={add.isPending} placeholder="Name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+        <textarea className="memsnip__cmd-input" aria-label="New snippet command" disabled={add.isPending} placeholder="Command" value={command} maxLength={4000} onChange={(e) => setCommand(e.target.value)} />
         <div className="memdrawer__actions">
           <button type="button" className="memdrawer__action" disabled={add.isPending || !name.trim() || !command} onClick={() => add.mutate()}>Add snippet</button>
         </div>

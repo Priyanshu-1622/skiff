@@ -215,3 +215,20 @@ test("indexed entries carry the user id and username they were run under", async
   assert.equal(pwd.username, null);
   done();
 });
+
+test("a retention sweep removes old output from an already-open search index", async () => {
+  const { db, vaultKey, indexes, done } = setup();
+  const s = seed(db, vaultKey, "k1", null, []);
+  db.prepare("INSERT INTO vault_meta (id,schema_version,kdf_salt,kdf_iterations,kdf_memory_kib,kdf_parallelism,verifier,created_at) VALUES (1,6,zeroblob(16),1,1,1,zeroblob(32),'then')").run();
+  saveCommandEntry(db, s.dataKey, { memorySessionId: s.memorySessionId, serverId: null, userId: null, event: ev("old-command", { startedAt: Date.now() - 100 * 86400000, output: "retention-output-only" }) });
+  const ix = await indexes.forLogin("login1", vaultKey, null);
+  assert.equal(ix.search("retention-output-only", { includeOutput: true }).length, 1);
+  const { startRetentionSweep } = await import("./retention.js");
+  const sweep = startRetentionSweep(db, () => vaultKey);
+  try {
+    await sweep.tick();
+    await indexes.forLogin("login1", vaultKey, null);
+    assert.equal(ix.search("retention-output-only", { includeOutput: true }).length, 0);
+    assert.equal(ix.search("old-command").length, 1, "command history stays searchable");
+  } finally { sweep.stop(); done(); }
+});

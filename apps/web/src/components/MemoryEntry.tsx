@@ -79,6 +79,7 @@ function CommandRow({ entry, hostLabel, showUser, onRunAgain }: {
         {hostLabel && <span className="memrow__chip memrow__host">{hostLabel}</span>}
         {showUser && entry.username && <span className="memrow__chip">{entry.username}</span>}
         <span className="memdrawer__cmd">{entry.command}</span>
+        {entry.flags?.includes("multiline") && <span className="memrow__chip" title="One submitted shell block; output and exit status belong to the whole block">multi-line block</span>}
         {entry.flags?.includes("fullscreen") && <span className="memrow__chip memrow__warn">full-screen · not captured</span>}
         <span className="memdrawer__status">{statusLabel(entry)}</span>
       </button>
@@ -89,12 +90,13 @@ function CommandRow({ entry, hostLabel, showUser, onRunAgain }: {
           {detail.data && (
             <>
               {detail.data.cwd && <div className="memdrawer__meta">{detail.data.cwd}</div>}
+              {entry.flags?.includes("multiline") && <pre className="memdrawer__output" aria-label="Submitted command block">{detail.data.command}</pre>}
               <pre className="memdrawer__output">{detail.data.output || "(no output)"}</pre>
             </>
           )}
           <EntryFooter entryId={entry.id}>
             {onRunAgain && (
-              <button type="button" className="memdrawer__action" title="Types the command into the terminal — you press Enter" onClick={() => onRunAgain(entry.command)}>
+              <button type="button" className="memdrawer__action" disabled={/[\r\n]/.test(entry.command)} title={/[\r\n]/.test(entry.command) ? "Use Copy to preserve and review this multi-line block" : "Types the command into the terminal — you press Enter"} onClick={() => onRunAgain(entry.command)}>
                 Run again
               </button>
             )}

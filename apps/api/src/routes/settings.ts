@@ -416,6 +416,9 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
       const memoryOutputDays = m.memory_output_days ?? 90;
 
       const tx = db.transaction(() => {
+        // Export row order needn't put parents before children (folders can
+        // be moved after creation). Validate all references at commit instead.
+        db.pragma("defer_foreign_keys = ON");
         db.prepare(
           `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, idle_timeout_minutes, mode, recording_enabled, memory_enabled, memory_output_days, created_at)
            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -511,6 +514,8 @@ export const settingsRoutes: (deps: SettingsRouteDeps) => FastifyPluginAsync =
         }
       });
       tx();
+
+      sessionStore.setIdleTimeout(m.idle_timeout_minutes ?? 15);
 
       if (restoreAsTeam) {
         writeAudit(db, { action: "vault.restore", detail: { mode: "team", users: body.users.length }, ip: req.ip });

@@ -1,4 +1,5 @@
 import { StringDecoder } from "node:string_decoder";
+import { stripVTControlCharacters } from "node:util";
 import type { TermMirror } from "../term-mirror.js";
 import { Osc133Parser, type OscMarker } from "./osc133.js";
 import { redact } from "./redact.js";
@@ -80,9 +81,36 @@ const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
 // up to 64KB of output) without bound.
 const MAX_RETAINED_EVENTS = 200;
 
+// Default bash/zsh prompts keep user@host and the terminator stable while
+// their directory changes. Never generalize a password/interactive prompt.
+function samePrompt(before: string, after: string): boolean {
+  if (before === after) return true;
+  const signature = (s: string) => {
+    const m = /^([^\s@]+@[^\s:]+)(?:[:\s]).*?([%#$>])\s*$/.exec(s);
+    return m ? `${m[1]}:${m[2]}` : null;
+  };
+  const known = signature(before);
+  return known !== null && known === signature(after);
+}
+
+/** Plain text for Memory only; the live terminal still receives original bytes. */
+function cleanOutput(text: string): string {
+  return stripVTControlCharacters(text).split("\n").map(raw => {
+    const line: string[] = [];
+    let column = 0;
+    for (const ch of raw) {
+      if (ch === "\r") { column = 0; continue; }
+      if (ch === "\b") { column = Math.max(0, column - 1); continue; }
+      if (ch < " " && ch !== "\t") continue;
+      line[column++] = ch;
+    }
+    return line.join("").trimEnd();
+  }).join("\n");
+}
+
 type Phase =
   | { name: "idle" }
-  | { name: "typing"; promptEndX: number; promptRow: number; promptPrefix: string }
+  | { name: "typing"; promptEndX: number; promptRow: number; promptPrefix: string; pasteNewlines: number }
   | {
       name: "running";
       command: string;
@@ -112,12 +140,13 @@ type Phase =
  * stores raw keystrokes: only the single byte needed to detect Enter and
  * "first keystroke of a new command".
  *
- * Screen mode's end signal — "a keystroke arrived while a command was
- * running" — is not by itself enough: input meant for the running program
+ * Screen mode's returned-prompt signal is not by itself enough: input
+ * meant for the running program
  * (a password prompt, `less`, anything interactive) also arrives as
  * keystrokes. Each `typing` phase remembers the exact prompt text
  * (`promptPrefix`) it started at; a later keystroke only ends the command
- * if the screen currently shows that SAME prefix again — otherwise it's
+ * if the screen shows it again (allowing the cwd to change in a recognized
+ * user@host prompt) — otherwise it's
  * routed to the program, not treated as the start of a new command. This
  * also naturally excludes Ctrl-C/D/Z, which are explicitly never treated
  * as starting a command.
@@ -150,6 +179,10 @@ export class CaptureEngine {
   private cwd: string | null = null;
   private sawCommandMarkers = false;
   private pendingSplitX: number | null = null;
+  private inputControl = "";
+  private pasting = false;
+  private pasteCR = false;
+  private pendingEchoLines = 1;
   private queue: Promise<void> = Promise.resolve();
   private queuedBytes = 0;
   private _failed = false;
@@ -197,7 +230,21 @@ export class CaptureEngine {
     if (this._failed) return Promise.resolve();
     return this.enqueue(() => {
       const text = typeof data === "string" ? data : this.inputDecoder.write(data);
-      for (const ch of text) this.onInputByte(ch);
+      for (const ch of text) {
+        // Buffer only the six-byte paste delimiters, never clipboard contents.
+        if (this.inputControl || ch === "\x1b") {
+          this.inputControl += ch;
+          if (this.inputControl === "\x1b[200~" || this.inputControl === "\x1b[201~") {
+            this.pasting = this.inputControl === "\x1b[200~";
+            this.pasteCR = false;
+            this.inputControl = "";
+          } else if (!"\x1b[200~".startsWith(this.inputControl) && !"\x1b[201~".startsWith(this.inputControl)) {
+            const keys = this.inputControl;
+            this.inputControl = "";
+            for (const key of keys) this.onInputByte(key);
+          }
+        } else this.onInputByte(ch);
+      }
     });
   }
 
@@ -210,18 +257,26 @@ export class CaptureEngine {
       return;
     }
     if (this.phase.name === "typing") {
-      if (isEnter) this.pendingSplitX = this.phase.promptEndX;
+      if (isEnter && this.pasting) {
+        if (ch !== "\n" || !this.pasteCR) this.phase.pasteNewlines++;
+        this.pasteCR = ch === "\r";
+      } else if (isEnter) {
+        this.pendingSplitX = this.phase.promptEndX;
+        const echoedBreaks = this.mirror.blockStartingAt(this.phase.promptRow).split("\n").length - 1;
+        this.pendingEchoLines = Math.max(1, this.phase.pasteNewlines + 1 - echoedBreaks);
+      } else this.pasteCR = false;
       return;
     }
     if (this.phase.name === "running" && this.phase.confidence === "screen" && !isEnter && !isControl) {
       // A keystroke only means "the prompt returned" if the screen
-      // currently shows the SAME prompt text this command started at;
-      // otherwise it's input going to the running program itself (spec
+      // currently shows the prompt this command started at;
+      // allowing cwd changes in default user@host prompts. Otherwise it's
+      // input going to the running program itself (spec
       // §5: "a line that doesn't begin at a detected prompt isn't a
       // command", e.g. "[sudo] password:").
       const candidateX = this.mirror.cursorX();
       const candidatePrefix = this.mirror.cursorLine().slice(0, candidateX);
-      if (candidatePrefix === this.phase.promptPrefix) {
+      if (samePrompt(this.phase.promptPrefix, candidatePrefix)) {
         this.finishScreenCommand();
         this.beginTyping();
       }
@@ -232,7 +287,7 @@ export class CaptureEngine {
     const promptEndX = this.mirror.cursorX();
     const promptRow = this.mirror.cursorRow();
     const promptPrefix = this.mirror.cursorLine().slice(0, promptEndX);
-    this.phase = { name: "typing", promptEndX, promptRow, promptPrefix };
+    this.phase = { name: "typing", promptEndX, promptRow, promptPrefix, pasteNewlines: 0 };
   }
 
   onOutput(data: Buffer | string): Promise<void> {
@@ -266,7 +321,7 @@ export class CaptureEngine {
       if (m) {
         const cut = m.index + m[0].length;
         await this.applyWriteRaw(text.slice(0, cut));
-        this.startScreenCommand();
+        if (--this.pendingEchoLines === 0) this.startScreenCommand();
         const rest = text.slice(cut);
         if (rest) await this.applyWrite(rest); // now under "running" (or further typing, uncommonly)
         return;
@@ -305,8 +360,8 @@ export class CaptureEngine {
 
   /**
    * Screen mode has no end marker, so the returned prompt is the end signal:
-   * the cursor sits right after the same prompt text the command started at
-   * (the same equality test onInputByte uses, just evaluated when output
+   * the cursor sits right after the prompt the command started at, allowing
+   * directory changes (the same recognition test onInputByte uses, evaluated when output
    * arrives instead of waiting for the next keystroke — without this the
    * newest command wouldn't be saved until another was typed). Marker mode
    * ends on 133;D and is untouched. A blank prompt prefix can't be told
@@ -316,14 +371,14 @@ export class CaptureEngine {
     if (this.phase.name !== "running" || this.phase.confidence !== "screen") return;
     const p = this.phase;
     if (p.promptPrefix.trim() === "") return;
-    if (this.mirror.cursorLine().slice(0, this.mirror.cursorX()) !== p.promptPrefix) return;
+    const returnedPrompt = this.mirror.cursorLine().slice(0, this.mirror.cursorX());
+    if (!samePrompt(p.promptPrefix, returnedPrompt)) return;
     // The mirror's line text may carry the prompt without its trailing space
     // while the raw output still has it, so compare on the trimmed prompt.
-    const prompt = p.promptPrefix.trimEnd();
-    const body = p.output.trimEnd();
+    const prompt = returnedPrompt.trimEnd();
+    const body = cleanOutput(p.output).trimEnd();
     if (body.endsWith(prompt)) {
       const kept = body.slice(0, body.length - prompt.length);
-      p.outputBytes -= Buffer.byteLength(p.output.slice(kept.length), "utf8");
       p.output = kept;
     }
     this.finishScreenCommand();
@@ -366,7 +421,7 @@ export class CaptureEngine {
         // arrives while phase is "idle" or already "running"; ignore it.
         if (this.phase.name !== "typing" || this.pendingSplitX === null) break;
         const splitX = this.pendingSplitX;
-        const command = this.mirror.lineStartingAt(this.phase.promptRow).slice(splitX);
+        const command = this.readCommand(this.phase, splitX);
         this.pendingSplitX = null;
         if (command.trim() === "") {
           // Typed then erased back to nothing (e.g. backspaced away), or a
@@ -382,7 +437,7 @@ export class CaptureEngine {
           confidence: "marker",
           output: "",
           outputBytes: 0,
-          flags: [],
+          flags: command.includes("\n") ? ["multiline"] : [],
           promptPrefix: this.phase.promptPrefix,
           startedAt: Date.now(),
           suppressed: this.paused,
@@ -403,8 +458,8 @@ export class CaptureEngine {
   private startScreenCommand(): void {
     if (this.phase.name !== "typing" || this.pendingSplitX === null) return;
     const splitX = this.pendingSplitX;
-    const { promptRow, promptPrefix } = this.phase;
-    const command = this.mirror.lineStartingAt(promptRow).slice(splitX);
+    const { promptPrefix } = this.phase;
+    const command = this.readCommand(this.phase, splitX);
     this.pendingSplitX = null;
     if (command.trim() === "") {
       this.phase = { name: "idle" };
@@ -417,12 +472,19 @@ export class CaptureEngine {
       confidence: "screen",
       output: "",
       outputBytes: 0,
-      flags: [],
+      flags: command.includes("\n") ? ["multiline"] : [],
       promptPrefix,
       startedAt: Date.now(),
       suppressed: this.paused,
     };
     this.announceStart(command);
+  }
+
+  private readCommand(typing: Extract<Phase, { name: "typing" }>, splitX: number): string {
+    const echo = typing.pasteNewlines > 0
+      ? this.mirror.blockStartingAt(typing.promptRow)
+      : this.mirror.lineStartingAt(typing.promptRow);
+    return echo.slice(splitX);
   }
 
   private finishScreenCommand(): void {
@@ -444,7 +506,7 @@ export class CaptureEngine {
     startedAt: number,
   ): void {
     const pruned = outputTotalBytes > MAX_HEAD_TAIL_BYTES * 2;
-    const { text } = truncateHeadTail(output);
+    const { text } = truncateHeadTail(cleanOutput(output));
     const event: CommandEvent = {
       command: redact(command),
       exitCode,

@@ -87,7 +87,7 @@ export function MemoryDrawer({ hostId, open, onClose, onRunAgain }: {
           </button>
         ))}
       </div>
-      {tab === "notes" && <div className="memdrawer__list"><MemoryNotes hostId={hostId} /></div>}
+      {tab === "notes" && <div className="memdrawer__list"><MemoryNotes key={hostId} hostId={hostId} /></div>}
       {tab === "snippets" && <div className="memdrawer__list"><MemorySnippets onRun={onRunAgain} /></div>}
       {tab === "history" && <div className="memdrawer__searchbar">
         <input

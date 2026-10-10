@@ -10,6 +10,7 @@ const BATCH_ROWS = 200;
 interface Slot {
   index: MemoryIndex;
   chain: Promise<void>;
+  retentionAt?: string | null;
 }
 
 /**
@@ -39,7 +40,17 @@ export class MemoryIndexes {
     }
     const s = slot;
     // Serialize catch-ups per login so two requests can't index the same rows twice.
-    const run = s.chain.then(() => this.catchUp(s.index, vaultKey, visibleUserId));
+    const run = s.chain.then(async () => {
+      await this.catchUp(s.index, vaultKey, visibleUserId);
+      const meta = this.db.prepare("SELECT memory_last_retention_at FROM vault_meta WHERE id = 1").get() as
+        { memory_last_retention_at: string | null } | undefined;
+      const retentionAt = meta?.memory_last_retention_at ?? null;
+      if (retentionAt && retentionAt !== s.retentionAt) {
+        const pruned = this.db.prepare("SELECT id FROM memory_entries WHERE output_bytes = 0 AND output_pruned = 1").all() as { id: string }[];
+        for (const row of pruned) s.index.clearOutput(row.id);
+      }
+      s.retentionAt = retentionAt;
+    });
     s.chain = run.catch(() => {});
     await run;
     return s.index;

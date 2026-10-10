@@ -68,8 +68,15 @@ export class SessionStore {
    * session happens to be picked never matters.
    */
   anyVaultKey(): Buffer | null {
-    const entry = this.sessions.values().next().value as SessionEntry | undefined;
-    return entry ? entry.vaultKey : null;
+    const now = Date.now();
+    for (const [id, entry] of this.sessions) {
+      if (now - entry.lastSeenAt > this.idleTimeoutMs) {
+        this.destroy(id);
+        continue;
+      }
+      return entry.vaultKey;
+    }
+    return null;
   }
 
   /**

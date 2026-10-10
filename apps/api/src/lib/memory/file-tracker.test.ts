@@ -265,6 +265,25 @@ test("the command text in the entry is redacted", async () => {
 
 // ── checkWatched: changes made outside Skiff since the last session ──────────
 
+test("checkWatched notices a previously deleted file recreated outside Skiff, including an empty file", async () => {
+  for (const text of ["recreated\n", ""]) {
+    const first = setup();
+    first.fs.set("/srv/a", "old\n");
+    await first.run("vim /srv/a", () => first.fs.remove("/srv/a"));
+    const fs2 = new FakeFs();
+    fs2.set("/srv/a", text);
+    const second = setup({ db: first.db, key: first.key, fs: fs2 });
+    await second.tracker.checkWatched();
+    assert.equal(second.saved.length, 1);
+    const entry = second.saved[0]!;
+    assert.equal(entry.change, "created");
+    assert.equal(entry.oldContentId, null);
+    assert.equal(getContent(second.db, second.key, entry.newContentId!), text);
+    await second.tracker.checkWatched();
+    assert.equal(second.saved.length, 1, "the recreated baseline is remembered");
+  }
+});
+
 test("checkWatched reports a file that differs from the stored version, flagged outside, and moves the baseline", async () => {
   const first = setup();
   first.fs.set("/srv/a", "one\n");

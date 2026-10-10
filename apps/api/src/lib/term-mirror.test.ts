@@ -160,3 +160,14 @@ test("lineStartingAt follows wrapped continuation rows into one logical line", a
   assert.equal(m.lineStartingAt(promptRow), "0123456789ABCDEFGHIJ");
   m.dispose();
 });
+
+test("disposing a mirror releases snapshots and flushes already waiting on xterm", { timeout: 1000 }, async () => {
+  const m = new TermMirror({ cols: 80, rows: 24 });
+  m.write("pending screen");
+  const snapshot = m.snapshotWithSeq();
+  const flush = m.flush();
+  m.dispose();
+  await flush;
+  assert.deepEqual(await snapshot, { screen: "", seq: 0 });
+  assert.deepEqual(await m.snapshotWithSeq(), { screen: "", seq: 0 });
+});

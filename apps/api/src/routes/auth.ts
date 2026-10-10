@@ -102,26 +102,36 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
         }
         const sharedKey = generateSharedKey();
         const provisioned = await provisionUser(body.password, sharedKey);
+        if (db.prepare("SELECT id FROM vault_meta WHERE id = 1").get()) {
+          sharedKey.fill(0);
+          return reply.code(409).send(err(ApiErrorCode.VALIDATION_FAILED, "Vault already initialized"));
+        }
         const now = new Date().toISOString();
-
-        db.prepare(
-          `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, mode, recording_enabled, created_at)
-           VALUES (1, ?, ?, ?, ?, ?, ?, 'team', 1, ?)`
-        ).run(
-          SCHEMA_VERSION,
-          provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
-          provisioned.verifier, now,
-        );
-
         const userId = generateId("usr");
-        db.prepare(
-          `INSERT INTO users (id, username, display_name, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, shared_key_blob, shared_key_nonce, is_admin, disabled, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)`
-        ).run(
-          userId, body.username, null,
-          provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
-          provisioned.verifier, provisioned.sharedKeyBlob, provisioned.sharedKeyNonce, now,
-        );
+        try {
+          db.transaction(() => {
+            db.prepare(
+              `INSERT INTO vault_meta (id, schema_version, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, mode, recording_enabled, created_at)
+               VALUES (1, ?, ?, ?, ?, ?, ?, 'team', 1, ?)`
+            ).run(
+              SCHEMA_VERSION,
+              provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
+              provisioned.verifier, now,
+            );
+
+            db.prepare(
+              `INSERT INTO users (id, username, display_name, kdf_salt, kdf_iterations, kdf_memory_kib, kdf_parallelism, verifier, shared_key_blob, shared_key_nonce, is_admin, disabled, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)`
+            ).run(
+              userId, body.username, null,
+              provisioned.kdf.salt, provisioned.kdf.iterations, provisioned.kdf.memoryKib, provisioned.kdf.parallelism,
+              provisioned.verifier, provisioned.sharedKeyBlob, provisioned.sharedKeyNonce, now,
+            );
+          })();
+        } catch (e) {
+          sharedKey.fill(0);
+          throw e;
+        }
 
         const sessionUser = { id: userId, username: body.username, isAdmin: true };
         const sessionId = sessionStore.create(sharedKey, sessionUser);
@@ -134,6 +144,10 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
       // personal mode (unchanged behaviour)
       const params = generateKdfParams();
       const vaultKey = await deriveVaultKey(body.password, params);
+      if (db.prepare("SELECT id FROM vault_meta WHERE id = 1").get()) {
+        vaultKey.fill(0);
+        return reply.code(409).send(err(ApiErrorCode.VALIDATION_FAILED, "Vault already initialized"));
+      }
       const verifier = computeVerifier(vaultKey);
 
       db.prepare(
@@ -142,6 +156,7 @@ export const authRoutes: (deps: AuthRouteDeps) => FastifyPluginAsync =
       ).run(SCHEMA_VERSION, params.salt, params.iterations, params.memoryKib, params.parallelism, verifier, new Date().toISOString());
 
       const sessionId = sessionStore.create(vaultKey);
+      vaultKey.fill(0);
       reply.setCookie("skiff_session", sessionId, sessionCookieOptions(config));
       return ok({ message: "Vault initialized and unlocked", mode: "personal" });
     });

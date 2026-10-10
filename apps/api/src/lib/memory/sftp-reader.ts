@@ -15,15 +15,19 @@ interface Sftp {
 
 class Timeout extends Error {}
 
-function withTimeout<T>(start: (done: (err: Error | undefined, value?: T) => void) => void): Promise<T> {
+function withTimeout<T>(start: (done: (err: Error | undefined, value?: T) => void) => void, onLate?: (value: T) => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Timeout("sftp timeout")), OP_TIMEOUT_MS);
+    let settled = false;
+    const timer = setTimeout(() => { settled = true; reject(new Timeout("sftp timeout")); }, OP_TIMEOUT_MS);
     try {
       start((err, value) => {
+        if (settled) { if (!err && value !== undefined) onLate?.(value); return; }
+        settled = true;
         clearTimeout(timer);
         if (err) reject(err); else resolve(value as T);
       });
     } catch (e) {
+      settled = true;
       clearTimeout(timer);
       reject(e);
     }
@@ -52,7 +56,7 @@ export class SftpReader implements FileReader {
     if (this.failedAt && this.now() - this.failedAt < FAILURE_BACKOFF_MS) return Promise.resolve(null);
     const attempt = withTimeout<Sftp>((done) => {
       (this.ssh as { sftp(cb: (err: Error | undefined, s: Sftp) => void): void }).sftp((err, s) => done(err, s));
-    }).then((s) => {
+    }, (s) => { try { s.end(); } catch { /* already gone */ } }).then((s) => {
       if (this.closed) { try { s.end(); } catch { /* already gone */ } return null; }
       return s;
     }).catch(() => {
@@ -81,9 +85,12 @@ export class SftpReader implements FileReader {
     if (!s) return { kind: "error" };
     try {
       const st = await withTimeout<{ size: number; isFile(): boolean }>((done) => s.stat(path, (e, stats) => done(e, stats)));
+      if (this.closed) return { kind: "error" };
       if (!st.isFile()) return { kind: "not-file" };
       if (st.size > MAX_TRACKED_BYTES) return { kind: "too-large", size: st.size };
       const bytes = await withTimeout<Buffer>((done) => s.readFile(path, (e, data) => done(e, data)));
+      if (this.closed) return { kind: "error" };
+      if (bytes.length > MAX_TRACKED_BYTES) return { kind: "too-large", size: bytes.length };
       return { kind: "file", bytes, resolvedPath: path };
     } catch (e) {
       const code = (e as { code?: number }).code;

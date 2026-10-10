@@ -102,6 +102,11 @@ export class MemoryIndex {
     return !!row;
   }
 
+  /** Retention removes output, while the remembered command still exists. */
+  clearOutput(id: string): void {
+    this.db.prepare("UPDATE fts SET output = '' WHERE rowid = (SELECT rowid FROM meta WHERE id = ?)").run(id);
+  }
+
   search(q: string, opts: SearchOptions = {}): IndexHit[] {
     const match = toMatchQuery(q, !!opts.includeOutput);
     if (!match && !opts.browse) return [];

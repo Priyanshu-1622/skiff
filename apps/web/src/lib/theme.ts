@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getStored } from "./safe-storage";
 
 export type Theme = "dark" | "light";
 
@@ -12,7 +13,7 @@ const STORAGE_KEY = "skiff:theme";
 
 function readInitial(): Theme {
   if (typeof window === "undefined") return "dark";
-  const saved = window.localStorage.getItem(STORAGE_KEY);
+  const saved = getStored(STORAGE_KEY);
   return saved === "light" ? "light" : "dark";
 }
 

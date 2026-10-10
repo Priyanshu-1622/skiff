@@ -120,21 +120,22 @@ export class FileTracker {
       if (this.disposed || now() > deadline) return;
       try {
         const id = lastContentId(db, fileKey, serverId, path);
-        if (!id) continue; // last seen missing (or no stored version): nothing to compare with
-        const oldText = getContent(db, fileKey, id);
+        if (id === undefined) continue; // no trustworthy stored baseline
+        const oldText = id === null ? "" : getContent(db, fileKey, id);
         if (oldText === null) continue;
         const after = await this.read(path);
         if (this.disposed) return;
         const base = { path, flags: ["outside"], command: "", startedAt: Date.now() };
         if (after.t === "text") {
           this.seen.set(path, after);
-          if (after.text === oldText) continue;
+          if (id !== null && after.text === oldText) continue;
           const newId = putContent(db, fileKey, serverId, after.text);
           rememberFile(db, fileKey, serverId, path, newId);
           const d = unifiedDiff(oldText, after.text);
-          this.deps.save({ ...base, change: "modified", diff: redactLines(d.diff), added: d.added, removed: d.removed, oldContentId: id, newContentId: newId, note: null });
+          this.deps.save({ ...base, change: id === null ? "created" : "modified", diff: redactLines(d.diff), added: d.added, removed: d.removed, oldContentId: id, newContentId: newId, note: null });
         } else if (after.t === "missing") {
           this.seen.set(path, after);
+          if (id === null) continue;
           rememberFile(db, fileKey, serverId, path, null);
           const d = unifiedDiff(oldText, "");
           this.deps.save({ ...base, change: "deleted", diff: redactLines(d.diff), added: d.added, removed: d.removed, oldContentId: id, newContentId: null, note: null });

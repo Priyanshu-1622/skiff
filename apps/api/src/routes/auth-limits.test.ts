@@ -42,6 +42,33 @@ function cookieFrom(res: { headers: Record<string, unknown> }): string {
   return header.split(";")[0];
 }
 
+test("concurrent first-run setup initializes once and rejects the losing request cleanly", async () => {
+  const app = await buildApp({ config: TEST_CONFIG, db: memDb() });
+  try {
+    const results = await Promise.all(["personal", "team"].map((mode) => app.inject({
+      method: "POST", url: "/api/vault/setup",
+      payload: { password: "master-pass-1", mode, username: "admin" },
+    })));
+    assert.deepEqual(results.map((result) => result.statusCode).sort(), [200, 409]);
+    const status = (await app.inject({ method: "GET", url: "/api/vault/status" })).json().data;
+    assert.equal(status.initialized, true);
+  } finally { await app.close(); }
+});
+
+test("failed team administrator insertion rolls back setup so it can be retried", async () => {
+  const db = memDb();
+  const app = await buildApp({ config: TEST_CONFIG, db });
+  try {
+    db.raw.exec("CREATE TRIGGER fail_admin BEFORE INSERT ON users BEGIN SELECT RAISE(ABORT, 'simulated insert failure'); END");
+    const failed = await app.inject({ method: "POST", url: "/api/vault/setup", payload: { mode: "team", username: "admin", password: "master-pass-1" } });
+    assert.equal(failed.statusCode, 500);
+    assert.equal((db.raw.prepare("SELECT COUNT(*) AS n FROM vault_meta").get() as any).n, 0);
+    db.raw.exec("DROP TRIGGER fail_admin");
+    const retry = await app.inject({ method: "POST", url: "/api/vault/setup", payload: { mode: "team", username: "admin", password: "master-pass-1" } });
+    assert.equal(retry.statusCode, 200, retry.body);
+  } finally { await app.close(); }
+});
+
 test("personal: an attacker's wrong passwords never lock the owner out", async () => {
   const app = await buildApp({ config: TEST_CONFIG, db: memDb() });
   try {

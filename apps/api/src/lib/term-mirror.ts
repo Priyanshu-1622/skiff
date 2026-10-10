@@ -47,6 +47,7 @@ export class TermMirror {
   private readonly maxPendingBytes: number;
   /** Bytes handed to xterm whose parse callback hasn't fired yet. */
   private pendingBytes = 0;
+  private readonly flushWaiters = new Set<() => void>();
 
   constructor(opts: TermMirrorOptions) {
     this.term = new Terminal({
@@ -108,7 +109,9 @@ export class TermMirror {
   flush(): Promise<void> {
     if (this._failed) return Promise.resolve();
     return new Promise((resolve) => {
-      try { this.term.write("", () => resolve()); } catch { this._failed = true; resolve(); }
+      const done = () => { this.flushWaiters.delete(done); resolve(); };
+      this.flushWaiters.add(done);
+      try { this.term.write("", done); } catch { this._failed = true; done(); }
     });
   }
 
@@ -175,6 +178,23 @@ export class TermMirror {
     }, "");
   }
 
+  /** Echoed multiline submission, retaining hard newlines but joining wraps. */
+  blockStartingAt(row: number): string {
+    return this.guard(() => {
+      const buf = this.term.buffer.active;
+      const end = buf.baseY + buf.cursorY;
+      let text = "";
+      for (let r = row; r <= end; r++) {
+        const line = buf.getLine(r);
+        if (!line) break;
+        const wraps = r < end && buf.getLine(r + 1)?.isWrapped;
+        text += line.translateToString(!wraps);
+        if (r < end && !wraps) text += "\n";
+      }
+      return text.trimEnd();
+    }, "");
+  }
+
   isAltScreen(): boolean {
     return this.guard(() => this.term.buffer.active.type === "alternate", false);
   }
@@ -200,6 +220,8 @@ export class TermMirror {
   }
 
   dispose(): void {
+    this._failed = true;
+    for (const done of this.flushWaiters) done();
     try { this.term.dispose(); } catch { /* already gone */ }
   }
 }
