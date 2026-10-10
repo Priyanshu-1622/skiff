@@ -507,7 +507,15 @@ test("with snapshots on: the first run stores a baseline, an outside change in t
     assert.match(((await get(s, `/api/memory/entries/${pk.id}`)).json() as any).data.diff, /\+nginx 1\.24/);
 
     // A session where the user ran an install; the next snapshot's package change is explained, cron is not.
-    await s.session(async (t) => { await t.type("echo apt-get install redis > /srv/ignore\n", 800); });
+    await s.session(async (t) => {
+      // The install must happen after this session's baseline snapshot is saved.
+      const deadline = Date.now() + 5000;
+      while ((s.db.raw.prepare("SELECT COUNT(*) n FROM server_snapshots").get() as any).n < 3) {
+        assert.ok(Date.now() < deadline, "session baseline snapshot was not saved");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await t.type("echo apt-get install redis > /srv/ignore\n", 800);
+    });
     s.box.snapshotReply = snapOut({ packages: ["bash 5.1", "nginx 1.24", "redis 7"], ports: ["0.0.0.0:22", "0.0.0.0:8080"], cron: ["* * * * * job"] });
     const before = (await fileRowsApi(s)).filter((r) => r.flags.includes("snapshot")).length;
     await s.session(async (t) => { await t.type("whoami\n", 1500); });
