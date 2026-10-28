@@ -275,7 +275,7 @@
   flex: 1;
   overflow: auto;
   background: var(--ansi-bg);
-  padding: 14px 16px 14px 16px;
+  padding: 0;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
@@ -796,6 +796,7 @@
   flex: 1;
   overflow: hidden;
   background: #0A0B0D;
+  padding: 14px 16px;
 }
 .term__screen {
   width: 100%;
